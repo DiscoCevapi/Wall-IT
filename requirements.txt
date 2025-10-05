@@ -1,0 +1,4 @@
+PyGObject>=3.42.0    # For GTK4 bindings
+pycairo>=1.20.0     # For Cairo drawing support
+Pillow>=10.0.0      # Optional: For image effects
+pathlib            # For path handling

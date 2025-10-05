@@ -1,6 +1,10 @@
 # Wall-IT
 
-A flexible wallpaper management tool for Linux desktop environments, primarily designed for Niri Wayland compositor with optional KDE Plasma support.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+
+A modern wallpaper management tool for Linux desktop environments, featuring a GTK4-based GUI and powerful wallpaper effects. Primary support for Niri Wayland compositor with optional KDE Plasma integration.
+
+![Wall-IT Screenshot](docs/screenshot.png)
 
 ## Features
 
@@ -10,17 +14,38 @@ A flexible wallpaper management tool for Linux desktop environments, primarily d
 - Automatic desktop environment detection
 - Built-in graphical interface (wallpaper-gui.py)
 
+## Quick Start
+
+```bash
+# Install dependencies (Arch/CachyOS)
+yay -S gtk4 python-gobject python-cairo gdk-pixbuf2 libadwaita niri swww
+
+# Clone and install
+git clone https://github.com/DiscoCevapi/Wall-IT.git
+cd Wall-IT
+cp src/wall-it-*.py src/wall-it-{next,prev} ~/.local/bin/
+chmod +x ~/.local/bin/wall-it-*
+
+# Start GUI
+wallpaper-gui.py
+```
+
+For detailed installation instructions for all distributions, see [INSTALL.md](INSTALL.md).
+
 ## Requirements
 
 ### Required Packages
 - `python3` (3.6 or newer)
 - `niri` (Wayland compositor)
 - `swww` (wallpaper daemon)
+- `gtk4` (for GUI interface)
+- `python-gobject` (for GTK4 bindings)
+- `python-cairo` (for drawing support)
+- `gdk-pixbuf2` (for image handling)
+- `libadwaita` (for modern GTK widgets)
 - `python-pathlib` (Python path handling)
 - `find` (for wallpaper discovery)
 - `readlink` (for wallpaper tracking)
-- `python-qt6` (for GUI interface)
-- `qt6-wayland` (for Wayland support in GUI)
 
 ### Directory Structure
 ```bash
@@ -31,6 +56,9 @@ A flexible wallpaper management tool for Linux desktop environments, primarily d
 ```
 
 ### Optional Dependencies
+- `python-pillow` (for image effects)
+- `matugen` (for color scheme generation)
+- `wmctrl` (for window management)
 - `KDE Plasma` (alternative backend, auto-detected)
   - `qdbus`
   - `plasma-apply-wallpaperimage`
@@ -38,7 +66,7 @@ A flexible wallpaper management tool for Linux desktop environments, primarily d
 ### For Arch/CachyOS Users
 ```bash
 # Install required packages
-yay -S python niri swww python-pathlib coreutils python-qt6 qt6-wayland
+yay -S python niri swww gtk4 python-gobject python-cairo gdk-pixbuf2 libadwaita python-pathlib coreutils
 
 # Optional: For KDE support
 yay -S plasma-desktop qt5-tools
@@ -172,7 +200,17 @@ vim ~/.local/bin/wall-it-keybind-config.py
    swww query
    ```
 
-4. KDE-related errors
+4. "gi.repository.GLib.Error: gtk-error-quark" or other GTK errors
+   ```bash
+   # Make sure you have all GTK4 dependencies installed:
+   yay -S gtk4 python-gobject python-cairo gdk-pixbuf2 libadwaita
+   
+   # For other distros, install equivalent packages:
+   # Ubuntu/Debian: libgtk-4-1 python3-gi python3-cairo gdk-pixbuf2 libadwaita-1-0
+   # Fedora: gtk4 python3-gobject python3-cairo gdk-pixbuf2 libadwaita
+   ```
+
+5. KDE-related errors
    - These can be ignored if you're not using KDE
    - Only relevant if you're actually running KDE Plasma
 
