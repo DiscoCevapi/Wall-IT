@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# Path to wallpaper directory
+WALLPAPER_DIR="$HOME/Pictures/Wallpapers"
+
+# Get current wallpaper
+CURRENT_WALLPAPER=$(readlink "$HOME/.current-wallpaper" || echo "")
+
+# Get all valid wallpapers
+WALLPAPERS=($(find "$WALLPAPER_DIR" -type f \( -name "*.jpg" -o -name "*.jpeg" -o -name "*.png" \)))
+
+# If no wallpapers found, exit
+if [ ${#WALLPAPERS[@]} -eq 0 ]; then
+    echo "No wallpapers found in $WALLPAPER_DIR"
+    exit 1
+fi
+
+# Find current wallpaper index
+CURRENT_INDEX=0
+for i in "${!WALLPAPERS[@]}"; do
+    if [ "${WALLPAPERS[$i]}" = "$CURRENT_WALLPAPER" ]; then
+        CURRENT_INDEX=$i
+        break
+    fi
+done
+
+# Get previous wallpaper (wrap around to end if at start)
+PREV_INDEX=$(( (CURRENT_INDEX - 1 + ${#WALLPAPERS[@]}) % ${#WALLPAPERS[@]} ))
+PREV_WALLPAPER="${WALLPAPERS[$PREV_INDEX]}"
+
+# Set the wallpaper using wall-it-backend-manager.py
+"$HOME/.local/bin/wall-it-backend-manager.py" "$PREV_WALLPAPER"
+
+# Update current wallpaper symlink
+ln -sf "$PREV_WALLPAPER" "$HOME/.current-wallpaper"
