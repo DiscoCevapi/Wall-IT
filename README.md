@@ -8,6 +8,7 @@ A flexible wallpaper management tool for Linux desktop environments, primarily d
 - Per-monitor wallpaper support
 - Wallpaper transition effects (requires swww)
 - Automatic desktop environment detection
+- Built-in graphical interface (wallpaper-gui.py)
 
 ## Requirements
 
@@ -18,6 +19,8 @@ A flexible wallpaper management tool for Linux desktop environments, primarily d
 - `python-pathlib` (Python path handling)
 - `find` (for wallpaper discovery)
 - `readlink` (for wallpaper tracking)
+- `python-qt6` (for GUI interface)
+- `qt6-wayland` (for Wayland support in GUI)
 
 ### Directory Structure
 ```bash
@@ -35,7 +38,7 @@ A flexible wallpaper management tool for Linux desktop environments, primarily d
 ### For Arch/CachyOS Users
 ```bash
 # Install required packages
-yay -S python niri swww python-pathlib coreutils
+yay -S python niri swww python-pathlib coreutils python-qt6 qt6-wayland
 
 # Optional: For KDE support
 yay -S plasma-desktop qt5-tools
@@ -118,10 +121,17 @@ wall-it-next
 ### Regular Use
 Wall-IT will automatically detect your desktop environment (primarily supporting Niri):
 
+#### Command Line
 - Set next wallpaper: `wall-it-next`
 - Set previous wallpaper: `wall-it-prev`
 - Check monitor status: `wall-it-monitor-state.py`
 - Test backend detection: `wall-it-backend-manager.py`
+
+#### Graphical Interface
+- Start the GUI: `wallpaper-gui.py`
+- Browse and preview wallpapers
+- Set wallpapers with a click
+- See current wallpaper status
 
 ## Keybindings
 
