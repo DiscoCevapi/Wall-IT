@@ -11,19 +11,53 @@ A flexible wallpaper management tool for Linux desktop environments, primarily d
 
 ## Requirements
 
-Core requirements:
-- Python 3.x
-- A wallpaper directory at `~/Pictures/Wallpapers`
-- For Niri (primary backend):
-  - Niri Wayland compositor
-  - swww (wallpaper daemon)
+### Required Packages
+- `python3` (3.6 or newer)
+- `niri` (Wayland compositor)
+- `swww` (wallpaper daemon)
+- `python-pathlib` (Python path handling)
+- `find` (for wallpaper discovery)
+- `readlink` (for wallpaper tracking)
 
-Optional:
-- KDE Plasma (alternative backend, auto-detected if running KDE)
+### Directory Structure
+```bash
+# These will be created during installation
+~/Pictures/Wallpapers/     # Your wallpaper directory
+~/.local/bin/             # Scripts directory
+~/.current-wallpaper      # Symlink to current wallpaper
+```
+
+### Optional Dependencies
+- `KDE Plasma` (alternative backend, auto-detected)
+  - `qdbus`
+  - `plasma-apply-wallpaperimage`
+
+### For Arch/CachyOS Users
+```bash
+# Install required packages
+yay -S python niri swww python-pathlib coreutils
+
+# Optional: For KDE support
+yay -S plasma-desktop qt5-tools
+```
+
+### For Other Distros
+Ensure you have:
+1. Niri compositor installed and running
+2. swww daemon installed and running
+3. Python 3.6 or newer
+4. Basic Unix tools (find, readlink)
 
 ## Installation
 
-1. Clone this repository:
+1. Install required packages (see Requirements section above)
+
+2. Start swww daemon if not running:
+   ```bash
+   swww init
+   ```
+
+3. Clone this repository:
    ```bash
    git clone https://github.com/DiscoCevapi/Wall-IT.git
    cd Wall-IT
@@ -58,6 +92,17 @@ Optional:
 
 ## Usage
 
+### First Run
+Test if everything is working:
+```bash
+# Should show "Using NIRI backend"
+wall-it-backend-manager.py
+
+# Set your first wallpaper
+wall-it-next
+```
+
+### Regular Use
 Wall-IT will automatically detect your desktop environment (primarily supporting Niri):
 
 - Set next wallpaper: `wall-it-next`
@@ -75,6 +120,40 @@ To customize keybindings:
 ```bash
 vim ~/.local/bin/wall-it-keybind-config.py
 ```
+
+## Troubleshooting
+
+### Common Issues
+
+1. "Command not found"
+   ```bash
+   # Add ~/.local/bin to your PATH:
+   echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc  # For zsh
+   # OR
+   echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc  # For bash
+   ```
+
+2. "No wallpapers found"
+   ```bash
+   # Make sure you have wallpapers in the right directory
+   ls ~/Pictures/Wallpapers/*.{jpg,png,jpeg}
+   ```
+
+3. "swww daemon not running"
+   ```bash
+   swww init
+   ```
+
+4. KDE-related errors
+   - These can be ignored if you're not using KDE
+   - Only relevant if you're actually running KDE Plasma
+
+### Getting Help
+If you encounter issues:
+1. Run `wall-it-backend-manager.py` to see backend status
+2. Check your wallpaper directory exists
+3. Ensure swww daemon is running
+4. Make sure scripts are executable
 
 ## License
 
