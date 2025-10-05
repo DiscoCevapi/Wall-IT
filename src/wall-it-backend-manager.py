@@ -251,22 +251,22 @@ class BackendManager:
     
     def _load_backends(self):
         """Load all available backends"""
-        # Import KDE backend
-        try:
-            from pathlib import Path
-            kde_backend_path = Path(__file__).parent / "wall-it-kde-backend.py"
-            if kde_backend_path.exists():
-                import importlib.util
-                spec = importlib.util.spec_from_file_location("kde_backend", kde_backend_path)
-                kde_module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(kde_module)
-                self.backends['kde'] = kde_module.KDEBackend
-            
-        except Exception as e:
-            print(f"Warning: Could not load KDE backend: {e}", file=sys.stderr)
-        
-        # Register Niri backend
+        # Register Niri backend first
         self.backends['niri'] = NiriBackend
+        
+        # Import KDE backend only if we're in KDE
+        if 'KDE' in os.environ.get('XDG_CURRENT_DESKTOP', '').split(':'):
+            try:
+                from pathlib import Path
+                kde_backend_path = Path(__file__).parent / "wall-it-kde-backend.py"
+                if kde_backend_path.exists():
+                    import importlib.util
+                    spec = importlib.util.spec_from_file_location("kde_backend", kde_backend_path)
+                    kde_module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(kde_module)
+                    self.backends['kde'] = kde_module.KDEBackend
+            except Exception as e:
+                print(f"Info: KDE backend not loaded (not running KDE)", file=sys.stderr)
     
     def _detect_backend(self):
         """Auto-detect the appropriate backend"""
