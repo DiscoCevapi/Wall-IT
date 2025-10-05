@@ -1969,8 +1969,18 @@ class ThumbnailManager:
     
     def create_thumbnail(self, image_path: Path, size: Tuple[int, int] = (150, 150)) -> Optional[GdkPixbuf.Pixbuf]:
         """Create thumbnail with high-res support"""
-        # Use provided size directly
-        
+        # Validate image file first
+        try:
+            if not image_path.exists():
+                print(f"Error: Image file does not exist: {image_path}")
+                return None
+            if image_path.stat().st_size == 0:
+                print(f"Error: Empty image file: {image_path}")
+                return None
+        except Exception as e:
+            print(f"Error validating image file {image_path}: {e}")
+            return None
+
         cache_path = self.get_cache_path(image_path)
         
         # Check if cached thumbnail exists and is newer than source

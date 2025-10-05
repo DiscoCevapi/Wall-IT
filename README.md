@@ -47,6 +47,11 @@ For detailed installation instructions for all distributions, see [INSTALL.md](I
 - `find` (for wallpaper discovery)
 - `readlink` (for wallpaper tracking)
 
+### Image Requirements
+- Supported formats: JPG, PNG, WebP, BMP, TIFF, AVIF, HEIC
+- Images must be valid and non-empty
+- High-resolution images are automatically optimized
+
 ### Directory Structure
 ```bash
 # These will be created during installation
