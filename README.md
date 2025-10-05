@@ -54,7 +54,12 @@ Ensure you have:
 
 2. Start swww daemon if not running:
    ```bash
-   swww init
+   # First time setup:
+   systemctl --user enable --now swww.service
+   
+   # Or manually start it:
+   swww-daemon & disown
+   sleep 1  # Wait for daemon to start
    ```
 
 3. Clone this repository:
@@ -79,9 +84,17 @@ Ensure you have:
    cp src/wall-it-*.py src/wall-it-{next,prev} ~/.local/bin/
    ```
 
-5. Make all scripts executable:
+5. Make all scripts executable and update PATH:
    ```bash
    chmod +x ~/.local/bin/wall-it-*
+   
+   # Add ~/.local/bin to PATH
+   echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc  # For zsh
+   # OR
+   echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc  # For bash
+   
+   # Apply PATH change
+   export PATH="$HOME/.local/bin:$PATH"
    ```
 
 6. Initialize the wallpaper symlink:
@@ -141,7 +154,12 @@ vim ~/.local/bin/wall-it-keybind-config.py
 
 3. "swww daemon not running"
    ```bash
-   swww init
+   # Start swww daemon:
+   swww-daemon & disown
+   sleep 1  # Wait for daemon to start
+   
+   # Check if it's running:
+   swww query
    ```
 
 4. KDE-related errors
