@@ -2385,7 +2385,7 @@ class WallpaperSetter:
             print(f"🎨 Updating colors with matugen for {image_path.name} using {scheme} scheme")
             
             # Run matugen with proper arguments for new version
-            cmd = ['matugen', 'image', str(image_path), '-t', scheme, '--json']
+            cmd = ['matugen', 'image', str(image_path), '-t', scheme, '--json', 'hex']
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             
             if result.returncode == 0:
