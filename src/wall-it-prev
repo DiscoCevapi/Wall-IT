@@ -45,7 +45,7 @@ def get_matugen_scheme():
     return "scheme-expressive"  # Default scheme
 
 def generate_colors_with_matugen(wallpaper_path, scheme):
-    """Generate colors using matugen"""
+    """Generate colors using matugen and save to cache"""
     import subprocess
     try:
         cmd = [
@@ -55,6 +55,13 @@ def generate_colors_with_matugen(wallpaper_path, scheme):
             "--json", "hex"
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        
+        # Save colors to cache
+        if result.stdout:
+            cache_dir = Path.home() / ".cache" / "wall-it"
+            colors_file = cache_dir / "matugen_colors.json"
+            colors_file.write_text(result.stdout)
+        
         print(f"Wall-IT: Generated colors using matugen with {scheme} scheme")
         return True
     except subprocess.CalledProcessError as e:
