@@ -2384,8 +2384,8 @@ class WallpaperSetter:
             scheme = self.get_matugen_scheme()
             print(f"🎨 Updating colors with matugen for {image_path.name} using {scheme} scheme")
             
-            # Run matugen with proper arguments
-            cmd = ['matugen', 'image', str(image_path), '--mode', 'dark', '--type', scheme, '--json', 'hex']
+            # Run matugen with proper arguments for new version
+            cmd = ['matugen', 'image', str(image_path), '-t', scheme, '--json']
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             
             if result.returncode == 0:
@@ -2417,7 +2417,7 @@ class WallpaperSetter:
                 except json.JSONDecodeError as e:
                     print(f"Error parsing matugen JSON: {e}")
                     # Fallback: just run matugen without JSON parsing
-                    cmd_fallback = ['matugen', 'image', str(image_path), '--mode', 'dark', '--type', scheme]
+                    cmd_fallback = ['matugen', 'image', str(image_path), '-t', scheme]
                     fallback_result = subprocess.run(cmd_fallback, capture_output=True, text=True, timeout=30)
                     return fallback_result.returncode == 0
             else:
