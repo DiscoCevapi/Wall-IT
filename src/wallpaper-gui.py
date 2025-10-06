@@ -3673,6 +3673,11 @@ class WallpaperApp(Gtk.ApplicationWindow):
                     status_msg += f" ({effect_display})"
                 if monitor:
                     status_msg += f" on {monitor}"
+                
+                # Update matugen colors if enabled
+                if self.wallpaper_setter.is_matugen_enabled():
+                    self.wallpaper_setter.update_matugen_colors(image_path)
+                
                 GLib.idle_add(self.update_status, status_msg)
                 GLib.idle_add(self.update_enhanced_status)
             else:
