@@ -1,4 +1,58 @@
-#!/bin/bash
+#!/usr/bin/env python3
+import os
+import sys
+import subprocess
+from pathlib import Path
+
+def main():
+    # Path to wallpaper directory
+    wallpaper_dir = os.path.expanduser('~/Pictures/Wallpapers')
+    
+    # Get current wallpaper
+    current_wallpaper = Path(os.path.expanduser('~/.current-wallpaper')).resolve()
+    
+    # Get all valid wallpapers
+    wallpapers = sorted([
+        p for p in Path(wallpaper_dir).glob('*')
+        if p.suffix.lower() in ['.jpg', '.jpeg', '.png']
+    ])
+    
+    # If no wallpapers found, exit
+    if not wallpapers:
+        print('No wallpapers found')
+        return 1
+    
+    # Find current wallpaper index
+    try:
+        current_index = wallpapers.index(current_wallpaper)
+    except ValueError:
+        current_index = 0
+    
+    # Get previous wallpaper (wrap around to end if at start)
+    prev_index = (current_index - 1) if current_index > 0 else len(wallpapers) - 1
+    prev_wallpaper = wallpapers[prev_index]
+    
+    # Set the wallpaper using backend manager
+    backend_script = os.path.expanduser('~/.local/bin/wall-it-backend-manager.py')
+    subprocess.run(['python3', backend_script, str(prev_wallpaper)], check=False)
+    
+    # Update current wallpaper symlink
+    current_link = Path(os.path.expanduser('~/.current-wallpaper'))
+    if current_link.exists():
+        current_link.unlink()
+    current_link.symlink_to(prev_wallpaper)
+    
+    # Update matugen colors if enabled
+    matugen_enabled = Path(os.path.expanduser('~/.cache/wall-it/matugen_enabled'))
+    if matugen_enabled.exists() and matugen_enabled.read_text().strip() == 'true':
+        scheme = 'scheme-rainbow'
+        scheme_file = Path(os.path.expanduser('~/.cache/wall-it/matugen_scheme'))
+        if scheme_file.exists():
+            scheme = scheme_file.read_text().strip()
+        subprocess.run(['matugen', 'image', str(prev_wallpaper), '-t', scheme, '--json', 'hex'], check=False)
+
+if __name__ == '__main__':
+    sys.exit(main())
 
 # Path to wallpaper directory
 WALLPAPER_DIR="$HOME/Pictures/Wallpapers"
@@ -33,3 +87,14 @@ PREV_WALLPAPER="${WALLPAPERS[$PREV_INDEX]}"
 
 # Update current wallpaper symlink
 ln -sf "$PREV_WALLPAPER" "$HOME/.current-wallpaper"
+
+# Get current matugen scheme
+SCHEME="scheme-rainbow"
+if [ -f "$HOME/.cache/wall-it/matugen_scheme" ]; then
+    SCHEME=$(cat "$HOME/.cache/wall-it/matugen_scheme")
+fi
+
+# Update colors with matugen if enabled
+if [ -f "$HOME/.cache/wall-it/matugen_enabled" ] && [ "$(cat "$HOME/.cache/wall-it/matugen_enabled")" = "true" ]; then
+    matugen image "$PREV_WALLPAPER" -t "$SCHEME" --json hex
+fi
