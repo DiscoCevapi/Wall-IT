@@ -2,13 +2,13 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-A modern wallpaper management tool for Linux desktop environments, featuring a GTK4-based GUI and powerful wallpaper effects. Primary support for Niri Wayland compositor with optional KDE Plasma integration.
+A modern wallpaper management tool for Linux desktop environments, featuring a GTK4-based GUI and powerful wallpaper effects. Primary support for Niri and Hyprland Wayland compositors with optional KDE Plasma integration.
 
 ![Wall-IT Screenshot](docs/screenshot.png)
 
 ## Features
 
-- Multi-backend support (primarily for Niri/swww)
+- Multi-backend support (Niri, Hyprland, KDE Plasma)
 - Per-monitor wallpaper support
 - Wallpaper transition effects (requires swww)
 - Automatic desktop environment detection
@@ -19,6 +19,9 @@ A modern wallpaper management tool for Linux desktop environments, featuring a G
 ```bash
 # Install dependencies (Arch/CachyOS)
 yay -S gtk4 python-gobject python-cairo gdk-pixbuf2 libadwaita niri swww
+
+# For Hyprland users
+yay -S hyprland
 
 # Clone and install
 git clone https://github.com/DiscoCevapi/Wall-IT.git
@@ -36,7 +39,9 @@ For detailed installation instructions for all distributions, see [INSTALL.md](I
 
 ### Required Packages
 - `python3` (3.6 or newer)
-- `niri` (Wayland compositor)
+- Either:
+  - `niri` (Wayland compositor) OR
+  - `hyprland` (Wayland compositor)
 - `swww` (wallpaper daemon)
 - `gtk4` (for GUI interface)
 - `python-gobject` (for GTK4 bindings)
@@ -79,7 +84,7 @@ yay -S plasma-desktop qt5-tools
 
 ### For Other Distros
 Ensure you have:
-1. Niri compositor installed and running
+1. Either Niri or Hyprland compositor installed and running
 2. swww daemon installed and running
 3. Python 3.6 or newer
 4. Basic Unix tools (find, readlink)
@@ -152,7 +157,7 @@ wall-it-next
 ```
 
 ### Regular Use
-Wall-IT will automatically detect your desktop environment (primarily supporting Niri):
+Wall-IT will automatically detect your desktop environment (supporting Niri, Hyprland, and KDE Plasma):
 
 #### Command Line
 - Set next wallpaper: `wall-it-next`
@@ -168,9 +173,18 @@ Wall-IT will automatically detect your desktop environment (primarily supporting
 
 ## Keybindings
 
-Default keybindings:
+### Default keybindings (Niri)
 - Super + F2: Next wallpaper
 - Super + F1: Previous wallpaper
+
+### Hyprland keybindings
+Add these to your Hyprland config (`~/.config/hypr/hyprland.conf`):
+```bash
+# Wall-IT Keybinds
+bind = $mainMod ALT, N, exec, ~/.local/bin/wall-it-next
+bind = $mainMod ALT, P, exec, ~/.local/bin/wall-it-prev
+bind = $mainMod ALT, G, exec, ~/.local/bin/wallpaper-gui.py
+```
 
 To customize keybindings:
 ```bash
