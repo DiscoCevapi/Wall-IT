@@ -78,8 +78,10 @@ For detailed installation instructions for all distributions, see [INSTALL.md](I
 # Install required packages
 yay -S python niri swww gtk4 python-gobject python-cairo gdk-pixbuf2 libadwaita python-pathlib coreutils
 
-# Optional: For KDE support
-yay -S plasma-desktop qt5-tools
+# For KDE Plasma users
+yay -S plasma-desktop qt5-tools plasma-workspace
+
+# Note: KDE users can skip niri/hyprland if not using them
 ```
 
 ### For Other Distros

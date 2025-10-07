@@ -226,40 +226,12 @@ class KDEBackend:
             # Generate colors with matugen for KDE native method too
             matugen_success = self._generate_matugen_colors(wallpaper_path)
             
-            if monitor:
-                # Set wallpaper for specific monitor using KDE's desktop scripting
-                monitor_info = self.get_monitor_by_connector(monitor)
-                if monitor_info:
-                    kde_desktop_id = monitor_info.get('kde_desktop_id', '0')
-                    
-                    # Use KDE's desktop scripting to set wallpaper for specific desktop/screen
-                    script = f'''
-                    var desktop = desktops()[{kde_desktop_id}];
-                    if (desktop) {{
-                        desktop.wallpaperPlugin = "org.kde.image";
-                        desktop.currentConfigGroup = ["Wallpaper", "org.kde.image", "General"];
-                        desktop.writeConfig("Image", "file://{wallpaper_path}");
-                        desktop.writeConfig("FillMode", "2"); // Scaled, keep proportions
-                        desktop.reloadConfig();
-                    }}
-                    '''
-                    
-                    subprocess.run([
-                        'qdbus', 'org.kde.plasmashell', '/PlasmaShell', 
-                        'org.kde.PlasmaShell.evaluateScript', script
-                    ], check=True, capture_output=True)
-                    
-                    print(f"Wall-IT: Set wallpaper on monitor {monitor} (KDE desktop {kde_desktop_id})")
-                else:
-                    print(f"Warning: Monitor {monitor} not found, falling back to all monitors", file=sys.stderr)
-                    return self._set_wallpaper_kde_native(wallpaper_path, None)
-            else:
-                # Set wallpaper on all monitors using plasma-apply-wallpaperimage
-                subprocess.run([
-                    'plasma-apply-wallpaperimage', str(wallpaper_path)
-                ], check=True, capture_output=True)
-                
-                print(f"Wall-IT: Set wallpaper on all monitors (KDE native)")
+            # Always use plasma-apply-wallpaperimage for reliability
+            subprocess.run([
+                'plasma-apply-wallpaperimage', str(wallpaper_path)
+            ], check=True, capture_output=True)
+            
+            print(f"Wall-IT: Set wallpaper using KDE native method")
             
             # Apply KDE-specific color integration if matugen succeeded
             if matugen_success:

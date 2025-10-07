@@ -1,0 +1,48 @@
+#!/usr/bin/env python3
+"""
+Wall-IT Previous Wallpaper - Simplified KDE version (for packaging)
+"""
+
+import sys
+import subprocess
+from pathlib import Path
+
+def get_wallpaper_list():
+    wallpaper_dir = Path.home() / "Pictures" / "Wallpapers"
+    if not wallpaper_dir.exists():
+        return []
+    exts = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp', '.tiff'}
+    return sorted([p for p in wallpaper_dir.iterdir() if p.is_file() and p.suffix.lower() in exts])
+
+def get_current_wallpaper():
+    link = Path.home() / ".current-wallpaper"
+    try:
+        return Path(link.readlink()) if link.exists() else None
+    except Exception:
+        return None
+
+def set_wallpaper(path: Path) -> bool:
+    try:
+        subprocess.run(['plasma-apply-wallpaperimage', str(path)], check=True)
+        link = Path.home() / ".current-wallpaper"
+        if link.exists() or link.is_symlink():
+            link.unlink()
+        link.symlink_to(path)
+        print(f"Wall-IT: Set wallpaper to {path.name}")
+        return True
+    except Exception as e:
+        print(f"Error setting wallpaper: {e}", file=sys.stderr)
+        return False
+
+def main():
+    wallpapers = get_wallpaper_list()
+    if not wallpapers:
+        print("No wallpapers found in ~/Pictures/Wallpapers/", file=sys.stderr)
+        return 1
+    current = get_current_wallpaper()
+    idx = wallpapers.index(current) - 1 if current in wallpapers else -1
+    prev_wp = wallpapers[idx]
+    return 0 if set_wallpaper(prev_wp) else 1
+
+if __name__ == "__main__":
+    sys.exit(main())
