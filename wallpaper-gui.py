@@ -3995,7 +3995,8 @@ class WallpaperApp(Gtk.ApplicationWindow):
         """Handle scaling change"""
         selected = dropdown.get_selected()
         if selected != Gtk.INVALID_LIST_POSITION:
-            scaling_options = ['crop', 'fit', 'stretch', 'no']
+            # Must match the order in the dropdown definition
+            scaling_options = ['crop', 'fit', 'fill', 'stretch', 'tile', 'center', 'no']
             if selected < len(scaling_options):
                 scaling_id = scaling_options[selected]
                 self.wallpaper_setter.set_wallpaper_scaling(scaling_id)
@@ -4005,7 +4006,8 @@ class WallpaperApp(Gtk.ApplicationWindow):
         """Handle transition change"""
         selected = dropdown.get_selected()
         if selected != Gtk.INVALID_LIST_POSITION:
-            transition_options = ['fade', 'right', 'left', 'bottom', 'top', 'wipe', 'wave', 'grow', 'center', 'outer']
+            # Must match the order in the dropdown definition
+            transition_options = ['simple', 'fade', 'left', 'right', 'top', 'bottom', 'wipe', 'wave', 'grow', 'center', 'outer', 'any', 'random', 'none']
             if selected < len(transition_options):
                 transition_id = transition_options[selected]
                 self.wallpaper_setter.set_transition_effect(transition_id)
