@@ -1219,12 +1219,19 @@ class PhotoEffects:
         'sepia': 'Sepia',
         'grayscale': 'Grayscale',
         'vintage': 'Vintage',
+        'retro': 'Retro',
         'dramatic': 'Dramatic',
+        'cinematic': 'Cinematic',
         'soft': 'Soft Focus',
         'vivid': 'Vivid Colors',
+        'pastel': 'Pastel',
+        'neon': 'Neon Glow',
         'monochrome_blue': 'Blue Tint',
         'monochrome_red': 'Red Tint',
+        'monochrome_green': 'Green Tint',
         'high_contrast': 'High Contrast',
+        'invert': 'Invert Colors',
+        'cyberpunk': 'Cyberpunk',
         'dreamy': 'Dreamy'
     }
     
@@ -1354,6 +1361,64 @@ class PhotoEffects:
                 # Extreme contrast
                 enhancer = ImageEnhance.Contrast(img)
                 img = enhancer.enhance(2.0)
+            elif effect == 'retro':
+                # Retro effect with reduced saturation and contrast
+                enhancer = ImageEnhance.Color(img)
+                img = enhancer.enhance(0.8)
+                enhancer = ImageEnhance.Contrast(img)
+                img = enhancer.enhance(1.3)
+                # Add yellow/orange tint
+                r, g, b = img.split()
+                r = r.point(lambda x: min(255, int(x * 1.05)))
+                g = g.point(lambda x: min(255, int(x * 1.02)))
+                b = b.point(lambda x: int(x * 0.85))
+                img = Image.merge('RGB', (r, g, b))
+            elif effect == 'cinematic':
+                # Cinematic effect with letterbox feel
+                enhancer = ImageEnhance.Contrast(img)
+                img = enhancer.enhance(1.4)
+                enhancer = ImageEnhance.Color(img)
+                img = enhancer.enhance(1.2)
+                enhancer = ImageEnhance.Brightness(img)
+                img = enhancer.enhance(0.9)
+            elif effect == 'pastel':
+                # Pastel colors - soft and light
+                enhancer = ImageEnhance.Color(img)
+                img = enhancer.enhance(0.6)
+                enhancer = ImageEnhance.Brightness(img)
+                img = enhancer.enhance(1.2)
+            elif effect == 'neon':
+                # Neon glow effect
+                enhancer = ImageEnhance.Color(img)
+                img = enhancer.enhance(2.0)
+                enhancer = ImageEnhance.Contrast(img)
+                img = enhancer.enhance(1.5)
+                enhancer = ImageEnhance.Brightness(img)
+                img = enhancer.enhance(1.1)
+            elif effect == 'monochrome_green':
+                # Green tinted monochrome
+                grayscale = img.convert('L')
+                img = Image.merge('RGB', (
+                    grayscale.point(lambda x: int(x * 0.7)),
+                    grayscale.point(lambda x: min(255, int(x * 1.2))),
+                    grayscale.point(lambda x: int(x * 0.8))
+                ))
+            elif effect == 'invert':
+                # Invert colors
+                from PIL import ImageOps
+                img = ImageOps.invert(img)
+            elif effect == 'cyberpunk':
+                # Cyberpunk style - high contrast with blue/purple tint
+                enhancer = ImageEnhance.Contrast(img)
+                img = enhancer.enhance(1.6)
+                enhancer = ImageEnhance.Color(img)
+                img = enhancer.enhance(1.4)
+                # Apply blue/purple tint
+                r, g, b = img.split()
+                r = r.point(lambda x: int(x * 0.9))
+                g = g.point(lambda x: int(x * 0.95))
+                b = b.point(lambda x: min(255, int(x * 1.15)))
+                img = Image.merge('RGB', (r, g, b))
             elif effect == 'dreamy':
                 # Dreamy effect - soft with warm tone
                 img = img.filter(ImageFilter.GaussianBlur(radius=1.5))
@@ -3259,7 +3324,10 @@ class WallpaperApp(Gtk.ApplicationWindow):
         scaling_options = [
             ('crop', 'Crop'),
             ('fit', 'Fit'),
+            ('fill', 'Fill'),
             ('stretch', 'Stretch'),
+            ('tile', 'Tile'),
+            ('center', 'Center'),
             ('no', 'No Resize')
         ]
         scaling_names = [display_name for _, display_name in scaling_options]
@@ -3298,7 +3366,14 @@ class WallpaperApp(Gtk.ApplicationWindow):
             ('wave', 'Wave'),
             ('grow', 'Grow'),
             ('center', 'Center'),
-            ('outer', 'Outer')
+            ('outer', 'Outer'),
+            ('any', 'Random'),
+            ('simple', 'Simple'),
+            ('random', 'Random Mix'),
+            ('dissolve', 'Dissolve'),
+            ('pixelize', 'Pixelize'),
+            ('diamond', 'Diamond'),
+            ('spiral', 'Spiral')
         ]
         transition_names = [display_name for _, display_name in transition_options]
         
@@ -3355,6 +3430,8 @@ class WallpaperApp(Gtk.ApplicationWindow):
         top_row.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
         top_row.append(effects_label)
         top_row.append(self.effects_dropdown)
+        top_row.append(scaling_label)
+        top_row.append(self.scaling_dropdown)
         top_row.append(transition_label)
         top_row.append(self.transition_dropdown)
         
@@ -4036,20 +4113,6 @@ class WallpaperApp(Gtk.ApplicationWindow):
             tray_frame.set_child(tray_box)
             general_box.append(tray_frame)
         
-        # Monitor settings (if enabled)
-        if self.wallpaper_setter.is_monitor_config_enabled():
-            monitor_frame = Gtk.Frame()
-            monitor_frame.set_label("Monitor Configuration")
-            monitor_frame.set_margin_bottom(12)
-            
-            monitor_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-            monitor_box.set_margin_top(8)
-            monitor_box.set_margin_bottom(8)
-            monitor_box.set_margin_start(12)
-            monitor_box.set_margin_end(12)
-            
-            monitor_frame.set_child(monitor_box)
-            general_box.append(monitor_frame)
         
         general_page.set_child(general_box)
         notebook.append_page(general_page, Gtk.Label(label="General"))
@@ -4064,64 +4127,6 @@ class WallpaperApp(Gtk.ApplicationWindow):
                 except Exception as e:
                     print(f"Error applying settings: {e}")
             dlg.destroy()
-        dialog.connect('response', on_response)
-        dialog.present()
-        
-        content_area = dialog.get_content_area()
-        content_area.set_margin_top(12)
-        content_area.set_margin_bottom(12)
-        content_area.set_margin_start(12)
-        content_area.set_margin_end(12)
-        
-        # Create notebook for tabs
-        notebook = Gtk.Notebook()
-        notebook.set_hexpand(True)
-        notebook.set_vexpand(True)
-        content_area.append(notebook)
-        
-        # ============= GENERAL TAB =============
-        general_page = Gtk.ScrolledWindow()
-        general_page.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        
-        general_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        general_box.set_margin_top(20)
-        general_box.set_margin_bottom(20)
-        general_box.set_margin_start(20)
-        general_box.set_margin_end(20)
-        
-        
-        # System tray settings
-        if TRAY_AVAILABLE:
-            tray_frame = Gtk.Frame()
-            tray_frame.set_label("System Tray Settings")
-            tray_frame.set_margin_bottom(12)
-            
-            tray_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-            tray_box.set_margin_top(8)
-            tray_box.set_margin_bottom(8)
-            tray_box.set_margin_start(12)
-            tray_box.set_margin_end(12)
-            
-            tray_enable_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-            tray_enable_label = Gtk.Label()
-            tray_enable_label.set_text("Enable System Tray:")
-            tray_enable_label.set_size_request(150, -1)
-            
-            tray_enable_switch = Gtk.Switch()
-            tray_enable_switch.set_active(self.wallpaper_setter.is_system_tray_enabled())
-            
-            tray_enable_box.append(tray_enable_label)
-            tray_enable_box.append(tray_enable_switch)
-            tray_box.append(tray_enable_box)
-            
-            tray_info = Gtk.Label()
-            tray_info.set_markup('<span size="small">When enabled, Wall-IT will minimize to system tray instead of closing</span>')
-            tray_info.set_wrap(True)
-            tray_box.append(tray_info)
-            
-            tray_frame.set_child(tray_box)
-            general_box.append(tray_frame)
-        
         # Keybind Behavior Settings
         keybind_frame = Gtk.Frame()
         keybind_frame.set_label("Keybind Behavior")
