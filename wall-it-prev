@@ -107,59 +107,20 @@ def get_current_effect():
     return 'none'  # Default to original images
 
 def apply_effect(image_path, effect, temp_dir):
-    """Apply photo effect to image if needed"""
+    """Apply photo effect using the same implementation as GUI"""
     if effect == 'none':
         return image_path
     
     try:
-        from PIL import Image, ImageFilter, ImageEnhance
-        import numpy as np
+        # Import PhotoEffects from wallpaper-gui
+        import importlib.util
+        gui_path = Path(__file__).parent / "wallpaper-gui.py"
+        spec = importlib.util.spec_from_file_location("wallpaper_gui", gui_path)
+        gui_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gui_module)
         
-        temp_dir.mkdir(parents=True, exist_ok=True)
-        output_path = temp_dir / f"effect_{image_path.name}"
-        
-        # Open image
-        img = Image.open(image_path)
-        
-        # Apply effects using NumPy for performance
-        if effect == 'blur':
-            img = img.filter(ImageFilter.GaussianBlur(radius=2))
-        elif effect == 'sharpen':
-            img = img.filter(ImageFilter.SHARPEN)
-        elif effect == 'grayscale':
-            img = img.convert('L').convert('RGB')
-        elif effect in ['vintage', 'sepia']:
-            # Use NumPy for vintage/sepia effects (optimized)
-            img_array = np.array(img)
-            
-            if effect == 'vintage':
-                # Vintage effect using NumPy operations
-                sepia_filter = np.array([
-                    [0.393, 0.769, 0.189],
-                    [0.349, 0.686, 0.168], 
-                    [0.272, 0.534, 0.131]
-                ])
-                sepia_img = img_array @ sepia_filter.T
-                sepia_img = np.clip(sepia_img, 0, 255).astype(np.uint8)
-                img = Image.fromarray(sepia_img)
-                
-                # Add vintage warmth
-                enhancer = ImageEnhance.Color(img)
-                img = enhancer.enhance(1.2)
-                
-            elif effect == 'sepia':
-                # Sepia effect using NumPy operations
-                sepia_filter = np.array([
-                    [0.393, 0.769, 0.189],
-                    [0.349, 0.686, 0.168],
-                    [0.272, 0.534, 0.131]
-                ])
-                sepia_img = img_array @ sepia_filter.T
-                img = Image.fromarray(np.clip(sepia_img, 0, 255).astype(np.uint8))
-        
-        # Save processed image
-        img.save(output_path, 'JPEG', quality=95)
-        return output_path
+        # Use the GUI's PhotoEffects class
+        return gui_module.PhotoEffects.apply_effect(image_path, effect, temp_dir)
         
     except Exception as e:
         print(f"Warning: Could not apply {effect} effect: {e}", file=sys.stderr)
