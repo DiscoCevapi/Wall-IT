@@ -1,0 +1,350 @@
+#!/usr/bin/env python3
+"""
+Wall-IT Next Wallpaper - Switches to next wallpaper with configured transition effect
+"""
+
+import sys
+import json
+from pathlib import Path
+
+def get_transition_effect():
+    """Get the current transition effect from Wall-IT config"""
+    try:
+        cache_dir = Path.home() / ".cache" / "wall-it"
+        transition_file = cache_dir / "transition_effect"
+        if transition_file.exists():
+            return transition_file.read_text().strip()
+    except Exception as e:
+        print(f"Error reading transition effect: {e}", file=sys.stderr)
+    return "fade"  # Default fallback
+
+def is_matugen_enabled():
+    """Check if matugen is enabled in Wall-IT config"""
+    try:
+        cache_dir = Path.home() / ".cache" / "wall-it"
+        matugen_file = cache_dir / "matugen_enabled"
+        if matugen_file.exists():
+            return matugen_file.read_text().strip().lower() == "true"
+    except Exception:
+        pass
+    return True  # Default to enabled
+
+def get_matugen_scheme():
+    """Get the current matugen color scheme"""
+    try:
+        cache_dir = Path.home() / ".cache" / "wall-it"
+        scheme_file = cache_dir / "matugen_scheme"
+        if scheme_file.exists():
+            scheme = scheme_file.read_text().strip()
+            # Fix old scheme names to new format
+            if scheme in ['content', 'expressive', 'fidelity', 'fruit-salad', 'monochrome', 'neutral', 'rainbow', 'tonal-spot']:
+                scheme = f'scheme-{scheme}'
+            return scheme
+    except Exception:
+        pass
+    return "scheme-expressive"  # Default scheme
+
+def generate_colors_with_matugen(wallpaper_path, scheme):
+    """Generate colors using matugen and save to cache"""
+    import subprocess
+    try:
+        cmd = [
+            "matugen", "image", str(wallpaper_path),
+            "--mode", "dark", 
+            "--type", scheme,
+            "--json", "hex"
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        
+        # Save colors to cache
+        if result.stdout:
+            cache_dir = Path.home() / ".cache" / "wall-it"
+            colors_file = cache_dir / "matugen_colors.json"
+            colors_file.write_text(result.stdout)
+        
+        print(f"Wall-IT: Generated colors using matugen with {scheme} scheme")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"Error running matugen: {e.stderr if e.stderr else str(e)}", file=sys.stderr)
+        return False
+    except Exception as e:
+        print(f"Error with matugen: {e}", file=sys.stderr)
+        return False
+
+def get_current_wallpaper():
+    """Get the current wallpaper path"""
+    try:
+        current_wallpaper_link = Path.home() / ".current-wallpaper"
+        if current_wallpaper_link.exists():
+            return Path(current_wallpaper_link.readlink())
+    except Exception:
+        pass
+    return None
+
+def get_wallpaper_list():
+    """Get list of wallpapers"""
+    wallpaper_dir = Path.home() / "Pictures" / "Wallpapers"
+    if not wallpaper_dir.exists():
+        return []
+    
+    extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp', '.tiff'}
+    wallpapers = []
+    for file_path in wallpaper_dir.iterdir():
+        if file_path.is_file() and file_path.suffix.lower() in extensions:
+            wallpapers.append(file_path)
+    
+    return sorted(wallpapers)
+
+def get_current_effect():
+    """Get current photo effect from Wall-IT config"""
+    try:
+        cache_dir = Path.home() / ".cache" / "wall-it"
+        effect_file = cache_dir / "current_effect"
+        if effect_file.exists():
+            return effect_file.read_text().strip()
+    except Exception:
+        pass
+    return 'none'  # Default to original images
+
+def apply_effect(image_path, effect, temp_dir):
+    """Apply photo effect to image if needed"""
+    if effect == 'none':
+        return image_path
+    
+    try:
+        from PIL import Image, ImageFilter, ImageEnhance
+        import numpy as np
+        
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        output_path = temp_dir / f"effect_{image_path.name}"
+        
+        # Open image
+        img = Image.open(image_path)
+        
+        # Apply effects using NumPy for performance
+        if effect == 'blur':
+            img = img.filter(ImageFilter.GaussianBlur(radius=2))
+        elif effect == 'sharpen':
+            img = img.filter(ImageFilter.SHARPEN)
+        elif effect == 'grayscale':
+            img = img.convert('L').convert('RGB')
+        elif effect in ['vintage', 'sepia']:
+            # Use NumPy for vintage/sepia effects (optimized)
+            img_array = np.array(img)
+            
+            if effect == 'vintage':
+                # Vintage effect using NumPy operations
+                sepia_filter = np.array([
+                    [0.393, 0.769, 0.189],
+                    [0.349, 0.686, 0.168], 
+                    [0.272, 0.534, 0.131]
+                ])
+                sepia_img = img_array @ sepia_filter.T
+                sepia_img = np.clip(sepia_img, 0, 255).astype(np.uint8)
+                img = Image.fromarray(sepia_img)
+                
+                # Add vintage warmth
+                enhancer = ImageEnhance.Color(img)
+                img = enhancer.enhance(1.2)
+                
+            elif effect == 'sepia':
+                # Sepia effect using NumPy operations
+                sepia_filter = np.array([
+                    [0.393, 0.769, 0.189],
+                    [0.349, 0.686, 0.168],
+                    [0.272, 0.534, 0.131]
+                ])
+                sepia_img = img_array @ sepia_filter.T
+                img = Image.fromarray(np.clip(sepia_img, 0, 255).astype(np.uint8))
+        
+        # Save processed image
+        img.save(output_path, 'JPEG', quality=95)
+        return output_path
+        
+    except Exception as e:
+        print(f"Warning: Could not apply {effect} effect: {e}", file=sys.stderr)
+        return image_path
+
+def get_keybind_mode():
+    """Get the current keybind mode (all or active)"""
+    try:
+        cache_dir = Path.home() / ".cache" / "wall-it"
+        mode_file = cache_dir / "keybind_mode"
+        if mode_file.exists():
+            return mode_file.read_text().strip()
+    except Exception:
+        pass
+    return "all"  # Default to all monitors
+
+def get_backend_manager():
+    """Get backend manager instance"""
+    import importlib.util
+    backend_path = Path(__file__).parent / "wall-it-backend-manager.py"
+    spec = importlib.util.spec_from_file_location("backend_manager", backend_path)
+    backend_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(backend_module)
+    return backend_module.BackendManager()
+
+def get_active_monitor(backend_manager=None):
+    """Get the currently focused monitor using backend manager"""
+    if not backend_manager:
+        backend_manager = get_backend_manager()
+    
+    try:
+        monitor = backend_manager.get_active_monitor()
+        if monitor:
+            print(f"Wall-IT: Detected focused monitor: {monitor}")
+        return monitor
+    except Exception as e:
+        print(f"Warning: Could not detect focused monitor: {e}", file=sys.stderr)
+        return None
+
+def set_wallpaper(wallpaper_path, transition, effect='none', backend_manager=None):
+    """Set wallpaper using backend manager with transition effect and photo effects"""
+    try:
+        if not backend_manager:
+            backend_manager = get_backend_manager()
+        
+        # Apply effect if needed
+        processed_path = wallpaper_path
+        if effect != 'none':
+            temp_dir = Path.home() / ".cache" / "wall-it" / "temp"
+            processed_path = apply_effect(wallpaper_path, effect, temp_dir)
+        
+        # Check keybind mode to determine if we should target specific monitor
+        keybind_mode = get_keybind_mode()
+        
+        # Handle transitions based on backend support
+        if not backend_manager.supports_transitions():
+            # For backends that don't support transitions (like KDE), ignore transition parameter
+            transition = 'none'
+        else:
+            # Safety check for backends that do support transitions
+            if transition == 'none':
+                transition = 'fade'  # Fall back to fade transition
+                print("⚠️ Prevented 'none' transition - using fade instead")
+            elif transition == 'random':
+                transition = 'fade'  # Random can pick 'none', so use fade instead
+                print("⚠️ Prevented 'random' transition - using fade instead")
+        
+        # Determine target monitor
+        target_monitor = None
+        if keybind_mode == "active":
+            target_monitor = get_active_monitor(backend_manager)
+            if target_monitor:
+                print(f"Wall-IT: Targeting active monitor: {target_monitor}")
+        
+        # Set wallpaper using backend manager
+        success = backend_manager.set_wallpaper(processed_path, target_monitor, transition)
+        
+        if success:
+            # Update current wallpaper symlink (always use original image)
+            current_link = Path.home() / ".current-wallpaper"
+            if current_link.exists() or current_link.is_symlink():
+                current_link.unlink()
+            current_link.symlink_to(wallpaper_path)
+            
+            effect_text = f" with {effect} effect" if effect != 'none' else ""
+            transition_text = f" with {transition} transition" if transition != 'none' else ""
+            print(f"Wall-IT: Set wallpaper to {wallpaper_path.name}{transition_text}{effect_text}")
+        
+        return success
+        
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return False
+
+def main():
+    import os
+    import importlib.util
+    
+    # Initialize backend manager first
+    try:
+        backend_manager = get_backend_manager()
+        if not backend_manager.is_available():
+            print("Error: No compatible wallpaper backend found!", file=sys.stderr)
+            return 1
+    except Exception as e:
+        print(f"Error initializing backend: {e}", file=sys.stderr)
+        return 1
+    
+    # Import monitor state manager
+    sys.path.insert(0, os.path.dirname(__file__))
+    try:
+        from wall_it_monitor_state import MonitorStateManager
+    except ImportError:
+        state_path = Path(__file__).parent / "wall-it-monitor-state.py"
+        spec = importlib.util.spec_from_file_location("monitor_state", state_path)
+        monitor_state_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(monitor_state_module)
+        MonitorStateManager = monitor_state_module.MonitorStateManager
+    
+    # Get the focused monitor
+    keybind_mode = get_keybind_mode()
+    target_monitor = None
+    
+    if keybind_mode == "active":
+        target_monitor = get_active_monitor(backend_manager)
+        if not target_monitor:
+            print("Could not detect active monitor", file=sys.stderr)
+            return 1
+    
+    # Initialize monitor state manager
+    state_manager = MonitorStateManager()
+    state_manager.sync_from_global_state()
+    
+    # Get next wallpaper for the target monitor (or first monitor if all mode)
+    if target_monitor:
+        next_wallpaper = state_manager.get_next_wallpaper(target_monitor)
+    else:
+        # Fallback to global behavior
+        wallpapers = state_manager.get_wallpaper_list()
+        if not wallpapers:
+            print("No wallpapers found in ~/Pictures/Wallpapers/", file=sys.stderr)
+            return 1
+        current_wallpaper = get_current_wallpaper()
+        current_index = 0
+        if current_wallpaper and current_wallpaper in wallpapers:
+            current_index = wallpapers.index(current_wallpaper)
+        next_index = (current_index + 1) % len(wallpapers)
+        next_wallpaper = wallpapers[next_index]
+    
+    if not next_wallpaper:
+        print("Could not determine next wallpaper", file=sys.stderr)
+        return 1
+    
+    # Get configuration
+    transition = get_transition_effect()
+    effect = get_current_effect()
+    matugen_enabled = is_matugen_enabled()
+    
+    # Generate colors if matugen is enabled
+    if matugen_enabled:
+        scheme = get_matugen_scheme()
+        print(f"Wall-IT: Generating colors for {next_wallpaper.name}...")
+        generate_colors_with_matugen(next_wallpaper, scheme)
+    
+    # Set the wallpaper with effect
+    if set_wallpaper(next_wallpaper, transition, effect, backend_manager):
+        # Update state tracking
+        if target_monitor:
+            state_manager.set_current_wallpaper(target_monitor, next_wallpaper)
+        
+        if matugen_enabled:
+            scheme_display = {
+                'scheme-tonal-spot': 'Tonal Spot',
+                'scheme-content': 'Content', 
+                'scheme-expressive': 'Expressive',
+                'scheme-fidelity': 'Fidelity',
+                'scheme-fruit-salad': 'Fruit Salad',
+                'scheme-monochrome': 'Monochrome',
+                'scheme-neutral': 'Neutral',
+                'scheme-rainbow': 'Rainbow'
+            }.get(get_matugen_scheme(), get_matugen_scheme())
+            print(f"Wall-IT: Colors updated with {scheme_display} scheme")
+        return 0
+    else:
+        return 1
+
+if __name__ == "__main__":
+    sys.exit(main())
