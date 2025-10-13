@@ -14,7 +14,7 @@
 
 ### 🎨 Visual Effects
 - **27 Photo Effects** - From subtle enhancements to artistic transformations
-- **17 Transition Effects** - Smooth animations between wallpaper changes
+- **14 Transition Effects** - All valid swww transition animations
 - **12 Weather Animations** - Dynamic weather-based visual overlays
 - **7 Scaling Modes** - Perfect fit for any screen size and aspect ratio
 
@@ -122,11 +122,11 @@ Wall-IT includes 27 professional photo effects:
 
 ## 🔄 Transition Effects
 
-Choose from 17 smooth transition animations:
+Choose from 14 smooth transition animations:
 - **Directional:** Slide Left/Right, Slide Up/Down
 - **Organic:** Wave, Grow, Center, Outer  
-- **Creative:** Wipe, Dissolve, Pixelize, Diamond, Spiral
-- **Random:** Any, Random Mix, Simple
+- **Creative:** Wipe, Fade, Simple
+- **Random:** Any, Random Mix, None
 
 ## 🌤️ Weather Animations
 
@@ -178,7 +178,7 @@ Access via the settings button in the toolbar:
 
 ### New in This Release
 - ✨ **27 Photo Effects** - Professional image processing
-- 🎬 **17 Transition Effects** - Smooth wallpaper animations  
+- 🎬 **14 Transition Effects** - All valid swww transition animations  
 - 🌦️ **12 Weather Animations** - Dynamic weather overlays
 - 🖥️ **Enhanced Multi-Monitor** - Improved monitor detection
 - 📐 **7 Scaling Modes** - Perfect wallpaper fitting

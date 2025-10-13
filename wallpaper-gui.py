@@ -3360,23 +3360,20 @@ class WallpaperApp(Gtk.ApplicationWindow):
         transition_label.set_tooltip_text("Transition effects")
         
         transition_options = [
+            ('simple', 'Simple'),
             ('fade', 'Fade'),
-            ('right', 'Slide Left'),
-            ('left', 'Slide Right'),
-            ('bottom', 'Slide Up'),
+            ('left', 'Slide Left'),
+            ('right', 'Slide Right'), 
             ('top', 'Slide Down'),
+            ('bottom', 'Slide Up'),
             ('wipe', 'Wipe'),
             ('wave', 'Wave'),
             ('grow', 'Grow'),
             ('center', 'Center'),
             ('outer', 'Outer'),
-            ('any', 'Random'),
-            ('simple', 'Simple'),
+            ('any', 'Random Any'),
             ('random', 'Random Mix'),
-            ('dissolve', 'Dissolve'),
-            ('pixelize', 'Pixelize'),
-            ('diamond', 'Diamond'),
-            ('spiral', 'Spiral')
+            ('none', 'None')
         ]
         transition_names = [display_name for _, display_name in transition_options]
         

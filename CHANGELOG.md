@@ -27,11 +27,11 @@
 - **Effect Persistence**: Current effect setting persists across wallpaper changes
 
 #### **Advanced Transition Effects**
-- **17 Transition Types**: Expanded from basic transitions to include:
+- **14 Transition Types**: All valid swww transition effects:
   - **Directional**: Slide Left/Right, Slide Up/Down
   - **Organic**: Wave, Grow, Center, Outer
-  - **Creative**: Wipe, Dissolve, Pixelize, Diamond, Spiral
-  - **Random**: Any, Random Mix, Simple
+  - **Creative**: Wipe, Fade, Simple
+  - **Random**: Any, Random Mix, None
 - **Enhanced Animation**: Smooth transitions between wallpapers
 - **Compositor Integration**: Optimized for swww and backend-specific effects
 
