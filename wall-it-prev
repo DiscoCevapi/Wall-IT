@@ -279,11 +279,8 @@ def main():
     effect = get_current_effect()
     matugen_enabled = is_matugen_enabled()
     
-    # Generate colors if matugen is enabled
-    if matugen_enabled:
-        scheme = get_matugen_scheme()
-        print(f"Wall-IT: Generating colors for {prev_wallpaper.name}...")
-        generate_colors_with_matugen(prev_wallpaper, scheme)
+    # Note: matugen color generation is now handled by the backend during wallpaper setting
+    # This eliminates duplicate matugen calls and ensures proper integration
     
     # Set the wallpaper with effect
     if set_wallpaper(prev_wallpaper, transition, effect, backend_manager):

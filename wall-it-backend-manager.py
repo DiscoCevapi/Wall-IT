@@ -251,8 +251,18 @@ class BackendManager:
     
     def _load_backends(self):
         """Load all available backends"""
-        # Register Niri backend first
-        self.backends['niri'] = NiriBackend
+        # Import labwc backend if available (higher priority than niri for labwc users)
+        try:
+            from pathlib import Path
+            labwc_backend_path = Path(__file__).parent / "wall-it-labwc-backend.py"
+            if labwc_backend_path.exists():
+                import importlib.util
+                spec = importlib.util.spec_from_file_location("labwc_backend", labwc_backend_path)
+                labwc_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(labwc_module)
+                self.backends['labwc'] = labwc_module.LabwcBackend
+        except Exception as e:
+            print(f"Info: Labwc backend not loaded: {e}", file=sys.stderr)
         
         # Import KDE backend only if we're in KDE
         if 'KDE' in os.environ.get('XDG_CURRENT_DESKTOP', '').split(':'):
@@ -267,6 +277,9 @@ class BackendManager:
                     self.backends['kde'] = kde_module.KDEBackend
             except Exception as e:
                 print(f"Info: KDE backend not loaded (not running KDE)", file=sys.stderr)
+        
+        # Register Niri backend last (lowest priority since it's very permissive)
+        self.backends['niri'] = NiriBackend
     
     def _detect_backend(self):
         """Auto-detect the appropriate backend"""
