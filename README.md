@@ -21,6 +21,7 @@
 ### 🖥️ Compositor Support
 - **NIRI** - Full native integration
 - **Hyprland** - Advanced features with dynamic scaling
+- **LabWC** - Wayland compositor support via swww
 - **KDE Plasma** - Multi-monitor and scaling support
 - **GNOME** - Basic wallpaper setting support
 
@@ -99,6 +100,17 @@ Add to `~/.config/hypr/hyprland.conf`:
 # Wall-IT keybinds
 bind = SUPER, W, exec, python ~/.local/bin/wallpaper-gui.py --random
 bind = SUPER_SHIFT, W, exec, python ~/.local/bin/wallpaper-gui.py --effect sepia
+```
+
+#### LabWC Configuration
+Add to your LabWC configuration:
+```conf
+# Wall-IT keybinds
+<keybind key="W-w">
+  <action name="Execute">
+    <command>python ~/.local/bin/wallpaper-gui.py --random</command>
+  </action>
+</keybind>
 ```
 
 ## 🎨 Photo Effects
@@ -182,13 +194,37 @@ Access via the settings button in the toolbar:
 - 🌦️ **12 Weather Animations** - Dynamic weather overlays
 - 🖥️ **Enhanced Multi-Monitor** - Improved monitor detection
 - 📐 **7 Scaling Modes** - Perfect wallpaper fitting
-- 🎯 **Hyprland Support** - Full Hyprland compositor integration
+- 🎯 **Compositor Support** - NIRI, Hyprland, LabWC, KDE, GNOME integration
 - 🛠️ **Streamlined UI** - Cleaner settings and better tooltips
 
 ### Performance Improvements
 - 🚀 Faster startup and thumbnail generation
 - 🧠 Lower memory usage for large collections
 - ⚡ Non-blocking operations for better responsiveness
+
+## ⚠️ Known Issues
+
+### Weather Animations
+- **KDE Plasma**: Weather animation overlays are currently under development and may not display correctly in KDE environments. The underlying wallpaper changes work properly, but animated weather effects require compositor-specific implementation improvements.
+
+### System Tray
+- **GTK4 Compatibility**: System tray functionality is temporarily disabled due to GTK3/GTK4 compatibility conflicts. This is a known limitation that will be addressed in future releases.
+
+### Compositor-Specific Notes
+- **NIRI**: Full feature support - all transitions, effects, and animations work as expected
+- **Hyprland**: Complete integration with dynamic scaling capabilities
+- **LabWC**: Basic wallpaper setting and transitions via swww integration
+- **KDE Plasma**: Monitor management works well, but some advanced features may have limitations
+- **GNOME**: Basic wallpaper functionality - advanced features may not be fully supported
+
+### Performance Notes
+- **Large Images**: Very high-resolution images (>8K) may cause slower processing times during effect application
+- **Memory Usage**: Multiple simultaneous effect applications may increase memory usage temporarily
+
+### Workarounds
+- **Weather Animations on KDE**: Use NIRI or Hyprland for full weather animation support
+- **System Tray**: Use the GUI application directly or configure compositor-specific keybinds
+- **High Memory Usage**: Restart Wall-IT periodically if processing many large images with effects
 
 ## 🤝 Contributing
 
