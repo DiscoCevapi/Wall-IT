@@ -2447,57 +2447,11 @@ class WallpaperSetter:
         self.config.matugen_scheme_file.write_text(scheme)
     
     def update_matugen_colors(self, image_path: Path) -> bool:
-        """Update system colors using matugen - FIXED"""
-        try:
-            scheme = self.get_matugen_scheme()
-            print(f"🎨 Updating colors with matugen for {image_path.name} using {scheme} scheme")
-            
-            # Run matugen with proper arguments for new version
-            cmd = ['matugen', 'image', str(image_path), '-t', scheme, '--json', 'hex']
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            
-            if result.returncode == 0:
-                try:
-                    # Parse matugen JSON output
-                    colors_data = json.loads(result.stdout)
-                    
-                    # Extract colors for notification daemon
-                    if 'colors' in colors_data:
-                        colors = colors_data['colors']
-                        
-                        # Map matugen colors to notification daemon format
-                        notification_colors = {
-                            'background': colors.get('primary', '#2e2e2e'),
-                            'text': colors.get('on_primary', '#ffffff'), 
-                            'border': colors.get('secondary', '#6366f1'),
-                            'progress': colors.get('tertiary', '#6366f1')
-                        }
-                        
-                        # Update notification daemon colors
-                        daemon = NotificationManager.detect_notification_daemon()
-                        if daemon == 'mako':
-                            NotificationManager.update_mako_colors(notification_colors)
-                            print(f"✅ Updated {daemon} colors")
-                    
-                    print("✅ Matugen colors updated successfully")
-                    return True
-                    
-                except json.JSONDecodeError as e:
-                    print(f"Error parsing matugen JSON: {e}")
-                    # Fallback: just run matugen without JSON parsing
-                    cmd_fallback = ['matugen', 'image', str(image_path), '-t', scheme]
-                    fallback_result = subprocess.run(cmd_fallback, capture_output=True, text=True, timeout=30)
-                    return fallback_result.returncode == 0
-            else:
-                print(f"Matugen error: {result.stderr}")
-                return False
-                
-        except subprocess.TimeoutExpired:
-            print("Matugen timed out")
-            return False
-        except Exception as e:
-            print(f"Error updating matugen colors: {e}")
-            return False
+        """Update system colors using matugen - DISABLED: Backend handles this now"""
+        # Matugen color generation and integration is now handled by the backend
+        # This eliminates duplicate matugen calls and improves performance
+        print("ℹ️ Matugen colors handled by backend - skipping duplicate call")
+        return True
     
     def get_wallpaper_scaling(self) -> str:
         """Get wallpaper scaling mode"""
