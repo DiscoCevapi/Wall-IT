@@ -7,14 +7,24 @@ Defines keybindings for wallpaper management
 # Keybind definitions for wallpaper management
 KEYBINDS = {
     'next_wallpaper': {
-        'keys': ['Super+F2'],
-        'command': '/home/DiscoNiri/.local/bin/wall-it-next',
+        'keys': ['Super+Alt+N'],
+        'command': '/home/DiscoLab/.local/bin/wall-it-next',
         'description': 'Next wallpaper'
     },
     'prev_wallpaper': {
-        'keys': ['Super+F1'], 
-        'command': '/home/DiscoNiri/.local/bin/wall-it-prev',
+        'keys': ['Super+Alt+P'], 
+        'command': '/home/DiscoLab/.local/bin/wall-it-prev',
         'description': 'Previous wallpaper'
+    },
+    'open_gui': {
+        'keys': ['Super+Alt+G'],
+        'command': '/home/DiscoLab/.local/bin/wallpaper-gui.py',
+        'description': 'Open Wall-IT GUI'
+    },
+    'start_daemon': {
+        'keys': ['Super+Alt+W'],
+        'command': '/home/DiscoLab/.local/bin/start-wall-it',
+        'description': 'Start Wall-IT daemon'
     }
 }
 

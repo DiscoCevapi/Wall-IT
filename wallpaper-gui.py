@@ -1240,11 +1240,28 @@ class PhotoEffects:
     
     @staticmethod
     def apply_effect(image_path: Path, effect: str, temp_dir: Path) -> Optional[Path]:
-        """Apply photo effect to image and return temp file path"""
+        """Apply photo effect with smart caching for faster repeated changes"""
         if not PIL_AVAILABLE or effect == 'none':
             return image_path
         
         try:
+            # Check if effect file already exists (cache hit)
+            temp_path = temp_dir / f"effect_{effect}_{image_path.name}"
+            
+            # If cached version exists and is newer than original, use it
+            if temp_path.exists():
+                try:
+                    cache_mtime = temp_path.stat().st_mtime
+                    original_mtime = image_path.stat().st_mtime  
+                    if cache_mtime >= original_mtime:
+                        print(f"⚡ Using cached {effect} effect")
+                        return temp_path
+                except Exception:
+                    pass
+            
+            # Cache miss - generate effect
+            print(f"🎨 Applying {effect} effect...")
+            
             # Open image
             img = Image.open(image_path)
             
@@ -1433,8 +1450,7 @@ class PhotoEffects:
                 b = b.point(lambda x: int(x * 0.95))
                 img = Image.merge('RGB', (r, g, b))
             
-            # Save to temp file
-            temp_path = temp_dir / f"effect_{effect}_{image_path.name}"
+            # Save to temp file (temp_path already defined at beginning)
             img.save(temp_path, quality=95)
             return temp_path
             
@@ -2147,29 +2163,30 @@ class WallpaperSetter:
     def set_wallpaper(self, image_path: Path, monitor: str = None, transition: str = "fade", effect: str = 'none') -> bool:
         """Set wallpaper with effects and transitions"""
         try:
-            # Rate limiting: check if we're changing too fast
+            # Minimal rate limiting: only prevent excessive rapid changes
             current_time = time.time()
             if hasattr(self, '_last_change_time'):
                 time_since_last = current_time - self._last_change_time
-                if time_since_last < 1.0:  # Less than 1000ms since last change
-                    time.sleep(1.0 - time_since_last)  # Wait until 1000ms have passed
+                if time_since_last < 0.1:  # Less than 100ms since last change
+                    time.sleep(0.1 - time_since_last)  # Very short delay
             self._last_change_time = current_time
             # Get current effect before any processing
             current_effect = self.get_current_effect()
             effect_changing = (effect != current_effect)
             
-            # Clean up effect files when changing effects
-            if effect_changing:
-                self._aggressive_effect_cleanup()
+            # Skip aggressive cleanup for faster effect changes
+            # if effect_changing:
+            #     self._aggressive_effect_cleanup()
             
-            # Clean up any remaining old temporary effect files
-            self._cleanup_temp_files()
+            # Skip temp cleanup during wallpaper changes for speed
+            # self._cleanup_temp_files()  # Disabled for faster changes
             
-            # Apply photo effect
+            # Apply photo effect only if needed
             processed_path = image_path
             if effect != 'none' and PIL_AVAILABLE:
+                # Only process effects when actually needed
                 processed_path = PhotoEffects.apply_effect(image_path, effect, self.config.temp_dir)
-                if processed_path:
+                if processed_path and processed_path != image_path:  # Effect was applied
                     self.set_current_effect(effect)
                 else:
                     # If effect processing fails, fall back to original
@@ -2177,11 +2194,25 @@ class WallpaperSetter:
                     self.set_current_effect('none')
             else:
                 # Use original image for 'none' effect or if PIL not available
-                processed_path = image_path
-                self.set_current_effect(effect)
+                self.set_current_effect(effect)  # Still track the effect state
             
-            # Get wallpaper scaling mode
+            # Get wallpaper scaling mode and map to swww format
             scaling = self.get_wallpaper_scaling()
+            # Map GUI scaling options to valid swww options
+            scaling_map = {
+                'crop': 'crop',      # Crop to fill screen (default)
+                'fit': 'fit',        # Fit with letterboxing
+                'fill': 'stretch',   # Fill screen, may distort aspect ratio
+                'stretch': 'stretch', # Same as fill
+                'tile': 'no',        # Tile effect: use no-resize + fill-color
+                'center': 'no',      # Center without scaling
+                'no': 'no'           # No resize at all
+            }
+            swww_scaling = scaling_map.get(scaling, 'crop')  # default to crop
+            
+            # For tile and center modes, we need additional parameters
+            use_fill_color = scaling in ['tile', 'center']
+            fill_color = '000000ff' if scaling == 'center' else '222222ff'  # Black for center, dark gray for tile
             
             # Use backend manager to set wallpaper if available
             if self.backend_manager and self.backend_manager.is_available():
@@ -2189,13 +2220,16 @@ class WallpaperSetter:
                 if not self.backend_manager.supports_transitions():
                     transition = 'none'  # KDE doesn't support transitions
                 else:
-                    # Safety check: never use 'none' or 'random' transitions as they can cause overlap issues
+                    # Safety check and random transition selection
                     if transition == 'none':
                         transition = 'fade'  # Fall back to fade transition
                         print("⚠️ Prevented 'none' transition - using fade instead")
                     elif transition == 'random':
-                        transition = 'fade'  # Random can pick 'none', so use fade instead
-                        print("⚠️ Prevented 'random' transition - using fade instead")
+                        # Select a truly random transition (excluding 'none' and 'random')
+                        import random
+                        valid_transitions = ['fade', 'left', 'right', 'top', 'bottom', 'wipe', 'wave', 'grow', 'center', 'any', 'outer']
+                        transition = random.choice(valid_transitions)
+                        print(f"🎲 Random transition selected: {transition}")
                 
                 # Set wallpaper using backend manager
                 success = self.backend_manager.set_wallpaper(processed_path, monitor, transition)
@@ -2217,9 +2251,9 @@ class WallpaperSetter:
                             if monitor_name:
                                 self.set_monitor_wallpaper(monitor_name, image_path)
                     
-                    # Update matugen colors if enabled - use original image for better colors
-                    if self.is_matugen_enabled():
-                        self.update_matugen_colors(image_path)
+                    # Matugen colors are handled by the backend manager automatically
+                    # But we still need to update waybar shadows since backend doesn't handle that
+                    self.update_waybar_shadows(image_path)
                     
                     self.update_current_index(image_path)
                     return True
@@ -2228,20 +2262,20 @@ class WallpaperSetter:
                     return False
             
             # Fallback: Use swww directly (for compatibility)
-            # Ensure swww daemon is running
+            # Quick swww daemon check
             try:
-                # Test if daemon is responding
-                test_result = subprocess.run(['swww', 'query'], capture_output=True, text=True, timeout=2)
+                # Quick test if daemon is responding
+                test_result = subprocess.run(['swww', 'query'], capture_output=True, text=True, timeout=1)
                 if test_result.returncode != 0:
                     # Start daemon if not running
                     subprocess.Popen(['swww-daemon'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    time.sleep(1)  # Give daemon time to start
+                    time.sleep(0.5)  # Shorter wait time
             except subprocess.TimeoutExpired:
                 # Daemon might be stuck, restart it
-                subprocess.run(['swww', 'kill'], capture_output=True, text=True)
-                time.sleep(0.5)
+                subprocess.run(['swww', 'kill'], capture_output=True, text=True, timeout=1)
+                time.sleep(0.2)
                 subprocess.Popen(['swww-daemon'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                time.sleep(1)
+                time.sleep(0.5)
             
             # Clear when switching effects on all monitors to avoid overlap
             if effect_changing and not monitor:
@@ -2256,44 +2290,56 @@ class WallpaperSetter:
             if monitor:
                 cmd.extend(['--outputs', monitor])
             
-            # Safety check: never use 'none' or 'random' transitions as they can cause overlap issues
+            # Safety check and random transition selection
             if transition == 'none':
                 transition = 'fade'  # Fall back to fade transition
                 print("⚠️ Prevented 'none' transition - using fade instead")
             elif transition == 'random':
-                transition = 'fade'  # Random can pick 'none', so use fade instead
-                print("⚠️ Prevented 'random' transition - using fade instead")
+                # Select a truly random transition (excluding 'none' and 'random')
+                import random
+                valid_transitions = ['fade', 'left', 'right', 'top', 'bottom', 'wipe', 'wave', 'grow', 'center', 'any', 'outer']
+                transition = random.choice(valid_transitions)
+                print(f"🎲 Random transition selected: {transition}")
             
             # Adjust transition settings based on effect change type
             if effect_changing:
                 # Use slower, more stable transition when changing effects
-                cmd.extend([
+                cmd_args = [
                     '--transition-type', 'fade',  # Force fade for effect changes
                     '--transition-fps', '30',     # Lower FPS to reduce conflicts
-                    '--transition-duration', '1.2', # Slower duration for stable effect changes
-                    '--resize', scaling,
-                    str(processed_path)
-                ])
+                    '--transition-duration', '0.4', # Very fast duration
+                    '--resize', swww_scaling
+                ]
+                if use_fill_color:
+                    cmd_args.extend(['--fill-color', fill_color])
+                cmd_args.append(str(processed_path))
+                cmd.extend(cmd_args)
             else:
                 # Use regular settings - differentiate by monitor
                 if monitor:
                     # Individual monitor - stable transition
-                    cmd.extend([
+                    cmd_args = [
                         '--transition-type', transition,
                         '--transition-fps', '30',
-                        '--transition-duration', '0.8',  # Slower for stability
-                        '--resize', scaling,
-                        str(processed_path)
-                    ])
+                        '--transition-duration', '0.3',  # Very fast for individual monitors
+                        '--resize', swww_scaling
+                    ]
+                    if use_fill_color:
+                        cmd_args.extend(['--fill-color', fill_color])
+                    cmd_args.append(str(processed_path))
+                    cmd.extend(cmd_args)
                 else:
                     # All monitors - normal transition
-                    cmd.extend([
+                    cmd_args = [
                         '--transition-type', transition,
                         '--transition-fps', '30',
-                        '--transition-duration', '1.5',
-                        '--resize', scaling,
-                        str(processed_path)
-                    ])
+                        '--transition-duration', '0.4',
+                        '--resize', swww_scaling
+                    ]
+                    if use_fill_color:
+                        cmd_args.extend(['--fill-color', fill_color])
+                    cmd_args.append(str(processed_path))
+                    cmd.extend(cmd_args)
             
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
             
@@ -2313,8 +2359,12 @@ class WallpaperSetter:
                         self.set_monitor_wallpaper(monitor_id, image_path)
                 
                 # Update matugen colors if enabled - use original image for better colors
+                # Only do this in fallback swww mode since backend doesn't handle it
                 if self.is_matugen_enabled():
                     self.update_matugen_colors(image_path)
+                
+                # Update waybar shadows based on wallpaper colors
+                self.update_waybar_shadows(image_path)
                 
                 self.update_current_index(image_path)
                 return True
@@ -2450,8 +2500,35 @@ class WallpaperSetter:
         """Update system colors using matugen - DISABLED: Backend handles this now"""
         # Matugen color generation and integration is now handled by the backend
         # This eliminates duplicate matugen calls and improves performance
-        print("ℹ️ Matugen colors handled by backend - skipping duplicate call")
+        # Silently skip to avoid log spam
         return True
+    
+    def update_waybar_shadows(self, image_path: Path) -> bool:
+        """Update waybar shadow colors using efficient matugen-based approach"""
+        try:
+            # Use efficient matugen-based shadow updater (no PIL image analysis)
+            shadow_updater_script = Path.home() / ".local" / "bin" / "update-waybar-shadows-matugen.py"
+            if shadow_updater_script.exists():
+                result = subprocess.run([str(shadow_updater_script)], 
+                                      capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    print("✨ Updated waybar shadows")
+                    return True
+                else:
+                    # Fallback to old method if matugen-based fails
+                    old_shadow_updater = Path.home() / ".local" / "bin" / "update-waybar-shadows.py"
+                    if old_shadow_updater.exists():
+                        result = subprocess.run([str(old_shadow_updater), str(image_path)], 
+                                              capture_output=True, text=True, timeout=10)
+                        if result.returncode == 0:
+                            print("✨ Updated waybar shadows (fallback)")
+                            return True
+            else:
+                # Silently skip if shadow updater not available
+                pass
+        except Exception as e:
+            print(f"Warning: Error updating waybar shadows: {e}")
+        return False
     
     def get_wallpaper_scaling(self) -> str:
         """Get wallpaper scaling mode"""
@@ -3295,7 +3372,7 @@ class WallpaperApp(Gtk.ApplicationWindow):
         
         self.scaling_dropdown = Gtk.DropDown()
         self.scaling_dropdown.set_model(scaling_string_list)
-        self.scaling_dropdown.set_tooltip_text("Wallpaper scaling mode:\n• Crop: Crop image to fit screen (maintain aspect ratio)\n• Fit: Fit image to screen with bars (maintain aspect ratio)\n• Fill: Fill screen stretching if needed\n• Stretch: Stretch image to exact screen dimensions\n• Tile: Repeat image to fill screen\n• Center: Center image without scaling\n• No Resize: Use image original size")
+        self.scaling_dropdown.set_tooltip_text("Wallpaper scaling mode:\n• Crop: Crop image to fit screen (maintain aspect ratio)\n• Fit: Fit image to screen with bars (maintain aspect ratio)\n• Fill: Fill screen stretching if needed\n• Stretch: Stretch image to exact screen dimensions\n• Tile: Center image with dark background (swww limitation)\n• Center: Center image with black background\n• No Resize: Use image original size")
         self.scaling_dropdown.set_size_request(90, -1)  # Fixed width to prevent expansion
         self.scaling_dropdown.set_hexpand(False)  # Prevent horizontal expansion
         
@@ -3705,9 +3782,8 @@ class WallpaperApp(Gtk.ApplicationWindow):
                 if monitor:
                     status_msg += f" on {monitor}"
                 
-                # Update matugen colors if enabled
-                if self.wallpaper_setter.is_matugen_enabled():
-                    self.wallpaper_setter.update_matugen_colors(image_path)
+                # Note: matugen colors and waybar shadows are automatically handled 
+                # by the wallpaper_setter.set_wallpaper() method - no duplicate calls needed
                 
                 GLib.idle_add(self.update_status, status_msg)
                 GLib.idle_add(self.update_enhanced_status)
