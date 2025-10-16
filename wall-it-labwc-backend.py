@@ -577,5 +577,34 @@ def test_labwc_backend():
     print("\n✅ Labwc Backend v2.1.0 Test Complete")
 
 
+def restore_wallpaper():
+    """Restore wallpaper from cache with effects"""
+    cache_dir = Path.home() / ".cache" / "wall-it"
+    wallpaper_file = cache_dir / "current_wallpaper"
+    effect_file = cache_dir / "current_effect"
+    
+    if not wallpaper_file.exists() or not effect_file.exists():
+        print("No wallpaper state to restore")
+        return False
+    
+    try:
+        wallpaper_path = Path(wallpaper_file.read_text().strip())
+        effect = effect_file.read_text().strip()
+        
+        if wallpaper_path.exists():
+            backend = LabwcBackend()
+            print(f"Restoring wallpaper with effect: {effect}")
+            return backend.set_wallpaper(wallpaper_path)
+        else:
+            print(f"Wallpaper file not found: {wallpaper_path}")
+            return False
+    except Exception as e:
+        print(f"Error restoring wallpaper: {e}", file=sys.stderr)
+        return False
+
+
 if __name__ == "__main__":
-    test_labwc_backend()
+    if len(sys.argv) > 1 and sys.argv[1] == '--restore':
+        restore_wallpaper()
+    else:
+        test_labwc_backend()
