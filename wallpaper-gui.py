@@ -2198,7 +2198,7 @@ class WallpaperSetter:
                         print("⚠️ Prevented 'random' transition - using fade instead")
                 
                 # Set wallpaper using backend manager
-                success = self.backend_manager.set_wallpaper(processed_path, monitor, transition)
+                success = self.backend_manager.set_wallpaper(processed_path, monitor, transition, scaling)
                 
                 if success:
                     # Update current wallpaper link (always use original image, not processed)
@@ -3327,10 +3327,7 @@ class WallpaperApp(Gtk.ApplicationWindow):
         scaling_options = [
             ('crop', 'Crop'),
             ('fit', 'Fit'),
-            ('fill', 'Fill'),
             ('stretch', 'Stretch'),
-            ('tile', 'Tile'),
-            ('center', 'Center'),
             ('no', 'No Resize')
         ]
         scaling_names = [display_name for _, display_name in scaling_options]
@@ -3341,7 +3338,7 @@ class WallpaperApp(Gtk.ApplicationWindow):
         
         self.scaling_dropdown = Gtk.DropDown()
         self.scaling_dropdown.set_model(scaling_string_list)
-        self.scaling_dropdown.set_tooltip_text("Wallpaper scaling mode:\n• Crop: Crop image to fit screen (maintain aspect ratio)\n• Fit: Fit image to screen with bars (maintain aspect ratio)\n• Fill: Fill screen stretching if needed\n• Stretch: Stretch image to exact screen dimensions\n• Tile: Repeat image to fill screen\n• Center: Center image without scaling\n• No Resize: Use image original size")
+        self.scaling_dropdown.set_tooltip_text("Wallpaper scaling mode:\n• Crop: Crop image to fit screen (maintain aspect ratio)\n• Fit: Fit image to screen with bars (maintain aspect ratio)\n• Stretch: Stretch image to exact screen dimensions\n• No Resize: Use image original size")
         self.scaling_dropdown.set_size_request(90, -1)  # Fixed width to prevent expansion
         self.scaling_dropdown.set_hexpand(False)  # Prevent horizontal expansion
         
@@ -3996,7 +3993,7 @@ class WallpaperApp(Gtk.ApplicationWindow):
         selected = dropdown.get_selected()
         if selected != Gtk.INVALID_LIST_POSITION:
             # Must match the order in the dropdown definition
-            scaling_options = ['crop', 'fit', 'fill', 'stretch', 'tile', 'center', 'no']
+            scaling_options = ['crop', 'fit', 'stretch', 'no']
             if selected < len(scaling_options):
                 scaling_id = scaling_options[selected]
                 self.wallpaper_setter.set_wallpaper_scaling(scaling_id)

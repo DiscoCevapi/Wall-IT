@@ -101,10 +101,33 @@ def get_current_effect():
         cache_dir = Path.home() / ".cache" / "wall-it"
         effect_file = cache_dir / "current_effect"
         if effect_file.exists():
-            return effect_file.read_text().strip()
+            content = effect_file.read_text().strip()
+            # Handle the cache format "monitor_scale|effect" or just "effect"
+            if '|' in content:
+                parts = content.split('|')
+                if len(parts) >= 2:
+                    return parts[1]  # Return the effect part
+            return content
     except Exception:
         pass
     return 'none'  # Default to original images
+
+def get_wallpaper_scaling():
+    """Get wallpaper scaling mode from Wall-IT config"""
+    try:
+        cache_dir = Path.home() / ".cache" / "wall-it"
+        scaling_file = cache_dir / "wallpaper_scaling"
+        if scaling_file.exists():
+            content = scaling_file.read_text().strip()
+            # Handle the cache format "monitor_scale|wallpaper_mode"
+            if '|' in content:
+                parts = content.split('|')
+                if len(parts) >= 2:
+                    return parts[1]  # Return the wallpaper scaling mode part
+            return content
+    except Exception:
+        pass
+    return 'crop'  # Default to crop
 
 def apply_effect(image_path, effect, temp_dir):
     """Apply photo effect using the same implementation as GUI"""
@@ -175,6 +198,9 @@ def set_wallpaper(wallpaper_path, transition, effect='none', backend_manager=Non
         # Check keybind mode to determine if we should target specific monitor
         keybind_mode = get_keybind_mode()
         
+        # Get scaling mode
+        scaling = get_wallpaper_scaling()
+        
         # Handle transitions based on backend support
         if not backend_manager.supports_transitions():
             # For backends that don't support transitions (like KDE), ignore transition parameter
@@ -196,7 +222,7 @@ def set_wallpaper(wallpaper_path, transition, effect='none', backend_manager=Non
                 print(f"Wall-IT: Targeting active monitor: {target_monitor}")
         
         # Set wallpaper using backend manager
-        success = backend_manager.set_wallpaper(processed_path, target_monitor, transition)
+        success = backend_manager.set_wallpaper(processed_path, target_monitor, transition, scaling)
         
         if success:
             # Update current wallpaper symlink (always use original image)
@@ -207,7 +233,8 @@ def set_wallpaper(wallpaper_path, transition, effect='none', backend_manager=Non
             
             effect_text = f" with {effect} effect" if effect != 'none' else ""
             transition_text = f" with {transition} transition" if transition != 'none' else ""
-            print(f"Wall-IT: Set wallpaper to {wallpaper_path.name}{transition_text}{effect_text}")
+            scaling_text = f" using {scaling} scaling" if scaling != 'crop' else ""
+            print(f"Wall-IT: Set wallpaper to {wallpaper_path.name}{transition_text}{effect_text}{scaling_text}")
         
         return success
         

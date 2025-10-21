@@ -35,7 +35,7 @@ class WallpaperBackend(ABC):
         pass
     
     @abstractmethod
-    def set_wallpaper(self, wallpaper_path: Path, monitor: Optional[str] = None, transition: str = 'fade') -> bool:
+    def set_wallpaper(self, wallpaper_path: Path, monitor: Optional[str] = None, transition: str = 'fade', scaling: str = 'crop') -> bool:
         """Set wallpaper on specific monitor or all monitors"""
         pass
     
@@ -203,21 +203,22 @@ class NiriBackend(WallpaperBackend):
             print(f"Error getting active monitor: {e}", file=sys.stderr)
         return None
     
-    def set_wallpaper(self, wallpaper_path: Path, monitor: Optional[str] = None, transition: str = 'fade') -> bool:
+    def set_wallpaper(self, wallpaper_path: Path, monitor: Optional[str] = None, transition: str = 'fade', scaling: str = 'crop') -> bool:
         """Set wallpaper using swww"""
         try:
             cmd = [
                 'swww', 'img', str(wallpaper_path),
                 '--transition-type', transition,
                 '--transition-fps', '30',
-                '--transition-duration', '1.5'
+                '--transition-duration', '1.5',
+                '--resize', scaling
             ]
             
             if monitor:
                 cmd.extend(['--outputs', monitor])
             
             subprocess.run(cmd, check=True, capture_output=True)
-            print(f"Wall-IT: Set wallpaper via Niri/swww")
+            print(f"Wall-IT: Set wallpaper via Niri/swww with {scaling} scaling")
             return True
         except subprocess.CalledProcessError as e:
             print(f"Error setting wallpaper: {e}", file=sys.stderr)
@@ -310,10 +311,10 @@ class BackendManager:
             return self._active_backend.get_active_monitor()
         return None
     
-    def set_wallpaper(self, wallpaper_path: Path, monitor: Optional[str] = None, transition: str = 'fade') -> bool:
+    def set_wallpaper(self, wallpaper_path: Path, monitor: Optional[str] = None, transition: str = 'fade', scaling: str = 'crop') -> bool:
         """Set wallpaper"""
         if self._active_backend:
-            return self._active_backend.set_wallpaper(wallpaper_path, monitor, transition)
+            return self._active_backend.set_wallpaper(wallpaper_path, monitor, transition, scaling)
         return False
     
     def get_current_wallpaper(self, monitor: Optional[str] = None) -> Optional[Path]:

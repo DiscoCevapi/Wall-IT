@@ -166,12 +166,12 @@ class KDEBackend:
                 return monitor
         return None
     
-    def set_wallpaper(self, wallpaper_path: Path, monitor: Optional[str] = None, transition: str = 'fade') -> bool:
+    def set_wallpaper(self, wallpaper_path: Path, monitor: Optional[str] = None, transition: str = 'fade', scaling: str = 'crop') -> bool:
         """Set wallpaper on specific monitor or all monitors (hybrid KDE+swww approach)"""
         try:
             # Hybrid approach: Use swww for transitions if available, KDE for monitor-specific control
             if self.swww_available and transition != 'none':
-                return self._set_wallpaper_swww(wallpaper_path, monitor, transition)
+                return self._set_wallpaper_swww(wallpaper_path, monitor, transition, scaling)
             else:
                 return self._set_wallpaper_kde_native(wallpaper_path, monitor)
             
@@ -179,7 +179,7 @@ class KDEBackend:
             print(f"Error setting wallpaper: {e}", file=sys.stderr)
             return False
     
-    def _set_wallpaper_swww(self, wallpaper_path: Path, monitor: Optional[str] = None, transition: str = 'fade') -> bool:
+    def _set_wallpaper_swww(self, wallpaper_path: Path, monitor: Optional[str] = None, transition: str = 'fade', scaling: str = 'crop') -> bool:
         """Set wallpaper using swww for beautiful transitions with matugen support"""
         try:
             # Generate colors with matugen first (before setting wallpaper)
@@ -194,6 +194,9 @@ class KDEBackend:
                     '--transition-fps', '30',
                     '--transition-duration', '1.5'
                 ])
+            
+            # Add scaling mode
+            cmd.extend(['--resize', scaling])
             
             # Add monitor targeting if specified
             if monitor:
