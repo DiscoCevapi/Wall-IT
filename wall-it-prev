@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""
+Wall-IT Previous Wallpaper - Switches to previous wallpaper with configured transition effect
+"""
+
+import os
+import sys
+import importlib.util
+from pathlib import Path
+from typing import Optional
+
+# Import common utilities
+sys.path.insert(0, os.path.dirname(__file__))
+try:
+    import wall_it_common as common
+except ImportError:
+    common_path = Path(__file__).parent / "wall-it-common.py"
+    spec = importlib.util.spec_from_file_location("wall_it_common", common_path)
+    common = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(common)
+
+def get_monitor_state_manager():
+    """Get monitor state manager instance."""
+    state_path = Path(__file__).parent / "wall-it-monitor-state.py"
+    spec = importlib.util.spec_from_file_location("monitor_state", state_path)
+    monitor_state_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(monitor_state_module)
+    return monitor_state_module.MonitorStateManager()
+
+def main() -> int:
+    """Main function to switch to previous wallpaper."""
+    # Initialize backend manager
+    try:
+        backend_manager = common.get_backend_manager()
+        if not backend_manager.is_available():
+            print("Error: No compatible wallpaper backend found!", file=sys.stderr)
+            return 1
+    except Exception as e:
+        print(f"Error initializing backend: {e}", file=sys.stderr)
+        return 1
+    
+    # Get keybind mode and determine target monitor
+    keybind_mode = common.get_keybind_mode()
+    target_monitor: Optional[str] = None
+    
+    if keybind_mode == "active":
+        target_monitor = common.get_active_monitor(backend_manager)
+        if not target_monitor:
+            print("Could not detect active monitor", file=sys.stderr)
+            return 1
+    
+    # Initialize monitor state manager
+    state_manager = get_monitor_state_manager()
+    state_manager.sync_from_global_state()
+    
+    # Get previous wallpaper
+    if target_monitor:
+        prev_wallpaper = state_manager.get_prev_wallpaper(target_monitor)
+    else:
+        # Fallback to global behavior
+        wallpapers = state_manager.get_wallpaper_list()
+        if not wallpapers:
+            print("No wallpapers found in wallpaper directory", file=sys.stderr)
+            return 1
+        current_wallpaper = common.get_current_wallpaper()
+        current_index = 0
+        if current_wallpaper and current_wallpaper in wallpapers:
+            current_index = wallpapers.index(current_wallpaper)
+        prev_index = (current_index - 1) % len(wallpapers)
+        prev_wallpaper = wallpapers[prev_index]
+    
+    if not prev_wallpaper:
+        print("Could not determine previous wallpaper", file=sys.stderr)
+        return 1
+    
+    # Get configuration
+    transition = common.get_transition_effect()
+    effect = common.get_current_effect()
+    matugen_enabled = common.is_matugen_enabled()
+    
+    # Generate colors if matugen is enabled
+    if matugen_enabled:
+        scheme = common.get_matugen_scheme()
+        print(f"Wall-IT: Generating colors for {prev_wallpaper.name}...")
+        common.generate_colors_with_matugen(prev_wallpaper, scheme)
+    
+    # Set the wallpaper
+    if common.set_wallpaper(prev_wallpaper, transition, effect, backend_manager):
+        # Update state tracking
+        if target_monitor:
+            state_manager.set_current_wallpaper(target_monitor, prev_wallpaper)
+        
+        if matugen_enabled:
+            common.print_matugen_status(scheme)
+        return 0
+    else:
+        return 1
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""
+Wall-IT Startup Script - Initializes swww and sets the current wallpaper with saved effects
+"""
+
+import sys
+import subprocess
+import time
+import importlib.util
+from pathlib import Path
+from typing import Optional
+
+# Import configuration
+try:
+    import wall_it_config as config
+except ImportError:
+    config_path = Path(__file__).parent / "wall-it-config.py"
+    spec = importlib.util.spec_from_file_location("wall_it_config", config_path)
+    config_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(config_module)
+    config = config_module
+
+def start_swww_daemon(log_file: Path) -> bool:
+    """Start swww daemon if not running."""
+    try:
+        # Check if swww-daemon is running
+        result = subprocess.run(['pgrep', '-x', config.SWWW_DAEMON_NAME], 
+                               capture_output=True, text=True)
+        if result.returncode != 0:
+            # Start swww daemon
+            with open(log_file, 'a') as f:
+                # Note: Process handle not tracked as daemon manages its own lifecycle
+                subprocess.Popen([config.SWWW_DAEMON_NAME], stdout=f, stderr=f)
+            time.sleep(config.SWWW_INIT_DELAY)
+        
+        # Initialize swww if needed
+        try:
+            subprocess.run(['swww', 'query'], check=True, capture_output=True)
+        except subprocess.CalledProcessError:
+            subprocess.run(['swww', 'init'], check=True)
+            time.sleep(config.SWWW_INIT_DELAY)
+        
+        return True
+    except FileNotFoundError:
+        print("Error: swww not found. Please install swww.", file=sys.stderr)
+        return False
+    except Exception as e:
+        print(f"Error starting swww: {e}", file=sys.stderr)
+        return False
+
+def get_current_effect() -> str:
+    """Get current photo effect from Wall-IT config."""
+    try:
+        if config.EFFECT_FILE.exists():
+            content = config.EFFECT_FILE.read_text().strip()
+            # Handle legacy format
+            if '|' in content:
+                parts = content.split('|')
+                if len(parts) >= 2:
+                    return parts[1]
+            return content
+    except Exception:
+        pass
+    return config.DEFAULT_EFFECT
+
+def apply_effect(image_path: Path, effect: str, temp_dir: Path) -> Path:
+    """Apply photo effect to image if needed."""
+    if effect == 'none':
+        return image_path
+    
+    try:
+        from PIL import Image, ImageFilter, ImageEnhance
+        import numpy as np
+        
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        output_path = temp_dir / f"startup_effect_{image_path.name}"
+        
+        # Skip if already processed and up to date
+        if output_path.exists() and output_path.stat().st_mtime >= image_path.stat().st_mtime:
+            return output_path
+        
+        # Open image
+        img = Image.open(image_path)
+        
+        # Apply effects using NumPy for performance
+        if effect == 'blur':
+            img = img.filter(ImageFilter.GaussianBlur(radius=2))
+        elif effect == 'sharpen':
+            img = img.filter(ImageFilter.SHARPEN)
+        elif effect == 'grayscale':
+            img = img.convert('L').convert('RGB')
+        elif effect == 'dramatic':
+            # Dramatic effect: increase contrast and saturation
+            enhancer = ImageEnhance.Contrast(img)
+            img = enhancer.enhance(1.5)
+            enhancer = ImageEnhance.Color(img)
+            img = enhancer.enhance(1.3)
+        elif effect in ['vintage', 'sepia']:
+            # Use NumPy for vintage/sepia effects (optimized)
+            img_array = np.array(img)
+            
+            if effect == 'vintage':
+                # Vintage effect using NumPy operations
+                sepia_filter = np.array([
+                    [0.393, 0.769, 0.189],
+                    [0.349, 0.686, 0.168], 
+                    [0.272, 0.534, 0.131]
+                ])
+                sepia_img = img_array @ sepia_filter.T
+                sepia_img = np.clip(sepia_img, 0, 255).astype(np.uint8)
+                img = Image.fromarray(sepia_img)
+                
+                # Add vintage warmth
+                enhancer = ImageEnhance.Color(img)
+                img = enhancer.enhance(1.2)
+                
+            elif effect == 'sepia':
+                # Sepia effect using NumPy operations
+                sepia_filter = np.array([
+                    [0.393, 0.769, 0.189],
+                    [0.349, 0.686, 0.168],
+                    [0.272, 0.534, 0.131]
+                ])
+                sepia_img = img_array @ sepia_filter.T
+                img = Image.fromarray(np.clip(sepia_img, 0, 255).astype(np.uint8))
+        
+        # Save processed image
+        img.save(output_path, 'JPEG', quality=config.EFFECT_JPEG_QUALITY)
+        print(f"Wall-IT: Applied {effect} effect for startup")
+        return output_path
+        
+    except ImportError:
+        print("Warning: PIL/Pillow not installed. Cannot apply effects.", file=sys.stderr)
+        return image_path
+    except Exception as e:
+        print(f"Warning: Could not apply {effect} effect: {e}", file=sys.stderr)
+        return image_path
+
+def get_transition_effect() -> str:
+    """Get the current transition effect from Wall-IT config."""
+    try:
+        if config.TRANSITION_FILE.exists():
+            return config.TRANSITION_FILE.read_text().strip()
+    except Exception as e:
+        print(f"Error reading transition effect: {e}", file=sys.stderr)
+    return config.DEFAULT_TRANSITION
+
+def main() -> int:
+    """Main startup function."""
+    # Setup logging
+    config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    
+    # Always start swww daemon first (required for wall-it to work)
+    if not start_swww_daemon(config.LOG_FILE):
+        return 1
+    
+    # Check if we have a cached wallpaper to restore
+    # If so, skip the startup wallpaper setup (restore script will handle it)
+    current_wallpaper_cache = config.CACHE_DIR / "current_wallpaper"
+    if current_wallpaper_cache.exists():
+        cached_path = current_wallpaper_cache.read_text().strip()
+        if cached_path and Path(cached_path).exists():
+            print("Wall-IT: Wallpaper cache exists, skipping startup (restore script will handle it)")
+            return 0
+    
+    # Get current wallpaper or use first available
+    wallpaper_path: Optional[Path] = None
+    
+    if config.CURRENT_WALLPAPER_LINK.is_symlink() and config.CURRENT_WALLPAPER_LINK.exists():
+        wallpaper_path = Path(config.CURRENT_WALLPAPER_LINK.readlink())
+    else:
+        # Find first available wallpaper
+        if config.WALLPAPER_DIR.exists():
+            for file_path in config.WALLPAPER_DIR.iterdir():
+                if file_path.is_file() and file_path.suffix.lower() in config.IMAGE_EXTENSIONS:
+                    wallpaper_path = file_path
+                    break
+    
+    if not wallpaper_path or not wallpaper_path.exists():
+        print("No wallpaper found", file=sys.stderr)
+        return 1
+    
+    # Get saved settings
+    transition_effect = get_transition_effect()
+    current_effect = get_current_effect()
+    
+    # Apply effect if needed
+    processed_path = wallpaper_path
+    if current_effect != 'none':
+        processed_path = apply_effect(wallpaper_path, current_effect, config.TEMP_DIR)
+    
+    # Set wallpaper with transition effect
+    try:
+        cmd = [
+            'swww', 'img', str(processed_path),
+            '--transition-fps', str(config.STARTUP_TRANSITION_FPS),
+            '--transition-type', transition_effect,
+            '--transition-duration', str(config.STARTUP_TRANSITION_DURATION)
+        ]
+        
+        with open(config.LOG_FILE, 'a') as f:
+            result = subprocess.run(cmd, stdout=f, stderr=f)
+        
+        if result.returncode == 0:
+            # Update current wallpaper symlink atomically (always use original image)
+            temp_link = config.CURRENT_WALLPAPER_LINK.with_suffix('.tmp')
+            if temp_link.exists() or temp_link.is_symlink():
+                temp_link.unlink()
+            temp_link.symlink_to(wallpaper_path)
+            temp_link.replace(config.CURRENT_WALLPAPER_LINK)
+            
+            effect_text = f" with {current_effect} effect" if current_effect != 'none' else ""
+            transition_text = f" using {transition_effect} transition" if transition_effect != 'fade' else ""
+            print(f"Wall-IT: Set startup wallpaper to {wallpaper_path.name}{effect_text}{transition_text}")
+            return 0
+        else:
+            print("Error setting wallpaper", file=sys.stderr)
+            return 1
+    
+    except FileNotFoundError:
+        print("Error: swww not found. Please install swww.", file=sys.stderr)
+        return 1
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+if __name__ == "__main__":
+    sys.exit(main())
