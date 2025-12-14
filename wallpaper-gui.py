@@ -2144,6 +2144,36 @@ class WallpaperSetter:
         # Initialize backend manager
         self.backend_manager = _import_backend_manager()
     
+    def _apply_fit_blur(self, image_path: Path) -> Path:
+        """Apply fit-blur processing for ultrawide monitors."""
+        try:
+            # Import image processor
+            processor_path = Path(__file__).parent / "wall-it-image-processor.py"
+            spec = importlib.util.spec_from_file_location("image_processor", processor_path)
+            processor_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(processor_module)
+            
+            # Process image
+            output_dir = self.config.cache_dir / "fit-blur"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Generate cache filename
+            input_hash = str(hash(str(image_path)))[-8:]
+            output_path = output_dir / f"{image_path.stem}_fitblur_{input_hash}.jpg"
+            
+            # Check cache
+            if output_path.exists() and output_path.stat().st_mtime >= image_path.stat().st_mtime:
+                return output_path
+            
+            # Process with fit-blur
+            result = processor_module.create_fit_blur_wallpaper(image_path, output_path)
+            print(f"Wall-IT: Applied fit-blur processing for ultrawide")
+            return result
+            
+        except Exception as e:
+            print(f"Warning: Could not apply fit-blur: {e}")
+            return image_path
+    
     def set_wallpaper(self, image_path: Path, monitor: str = None, transition: str = "fade", effect: str = 'none') -> bool:
         """Set wallpaper with effects and transitions"""
         try:
@@ -2182,6 +2212,11 @@ class WallpaperSetter:
             
             # Get wallpaper scaling mode
             scaling = self.get_wallpaper_scaling()
+            
+            # Apply fit-blur processing if needed
+            if scaling == 'fit-blur':
+                processed_path = self._apply_fit_blur(processed_path)
+                scaling = 'crop'  # Use crop mode since image is already sized to screen
             
             # Use backend manager to set wallpaper if available
             if self.backend_manager and self.backend_manager.is_available():

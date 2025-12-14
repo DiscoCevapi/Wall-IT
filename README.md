@@ -13,6 +13,7 @@ A professional, modular wallpaper manager for Linux with support for multiple de
 - 🖥️ **Multi-Backend Support** - Works with Niri, KDE, Hyprland, and LabWC
 - ⌨️ **Keybind Support** - Switch wallpapers with keyboard shortcuts
 - 🔄 **Configurable** - Environment variables for custom paths and settings
+- 🎯 **Fit-Blur Mode** - Perfect for ultrawide monitors! Fits image and fills sides with blurred background
 
 ## 🚀 Performance Improvements (v2.1.0)
 
@@ -121,11 +122,26 @@ Wall-IT stores its configuration in `~/.cache/wall-it/`:
 
 - `transition_effect` - Current transition type (fade, wipe, grow, etc.)
 - `current_effect` - Active photo effect (none, blur, vintage, etc.)
-- `wallpaper_scaling` - Scaling mode (crop, fit, stretch)
+- `wallpaper_scaling` - Scaling mode (crop, fit, stretch, **fit-blur**)
 - `keybind_mode` - Keybind behavior (all monitors or active only)
 - `matugen_enabled` - Enable/disable Material You theming
 - `matugen_scheme` - Color scheme (scheme-expressive, scheme-tonal-spot, etc.)
 - `monitor_state.json` - Per-monitor wallpaper tracking
+
+### Fit-Blur Mode for Ultrawide Monitors
+
+Perfect for 21:9 or 32:9 ultrawides! The `fit-blur` scaling mode:
+1. Fits the image to screen height (maintains aspect ratio)
+2. Fills the sides with a zoomed, heavily blurred version of the image
+3. Darkens the blurred background for better contrast
+4. No black bars!
+
+To enable:
+```bash
+echo "fit-blur" > ~/.cache/wall-it/wallpaper_scaling
+```
+
+Or use the GUI wallpaper manager to select "Fit-Blur" from the scaling options.
 
 ### Performance Tuning
 
@@ -197,6 +213,24 @@ echo $WALLIT_WALLPAPER_DIR
 ```
 
 ## 📝 Changelog
+
+### Version 2.2.0 (2024-12-14) - Ultrawide Edition
+
+#### New Features
+- **Fit-Blur Scaling Mode** - Perfect for ultrawide monitors!
+  - Fits standard 16:9/portrait images while preserving aspect ratio
+  - Fills sides with beautifully blurred, darkened background
+  - No more black bars on 21:9 or 32:9 displays
+  - Automatic screen resolution detection (tested on 3440x1440)
+  - Cached processing for instant wallpaper switching
+  - Works with photo effects (effects applied first, then fit-blur)
+  - Integrated in both CLI (keybinds) and GUI (double-click)
+
+#### Technical
+- New `wall-it-image-processor.py` module for advanced image processing
+- Standalone CLI tool for testing: `wall-it-image-processor.py image.jpg -o output.jpg`
+- Customizable blur radius (default: 40) and zoom factor (default: 1.5x)
+- Smart caching based on file modification time
 
 ### Version 2.1.0 (2024-12-09) - Refactored Edition
 

@@ -163,6 +163,37 @@ def apply_effect(image_path: Path, effect: str, temp_dir: Path) -> Path:
         return image_path
 
 
+def apply_fit_blur(image_path: Path) -> Path:
+    """Apply fit-blur processing for ultrawide monitors."""
+    try:
+        # Import image processor
+        processor_path = Path(__file__).parent / "wall-it-image-processor.py"
+        spec = importlib.util.spec_from_file_location("image_processor", processor_path)
+        processor_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(processor_module)
+        
+        # Process image
+        output_dir = config.CACHE_DIR / "fit-blur"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Generate cache filename
+        input_hash = str(hash(str(image_path)))[-8:]
+        output_path = output_dir / f"{image_path.stem}_fitblur_{input_hash}.jpg"
+        
+        # Check cache
+        if output_path.exists() and output_path.stat().st_mtime >= image_path.stat().st_mtime:
+            return output_path
+        
+        # Process with fit-blur
+        result = processor_module.create_fit_blur_wallpaper(image_path, output_path)
+        print(f"Wall-IT: Applied fit-blur processing for ultrawide")
+        return result
+        
+    except Exception as e:
+        print(f"Warning: Could not apply fit-blur: {e}", file=sys.stderr)
+        return image_path
+
+
 def get_backend_manager():
     """Get backend manager instance."""
     backend_path = Path(__file__).parent / "wall-it-backend-manager.py"
@@ -251,6 +282,11 @@ def set_wallpaper(wallpaper_path: Path, transition: str, effect: str = 'none',
         
         # Get scaling mode
         scaling = get_wallpaper_scaling()
+        
+        # Apply fit-blur processing if needed
+        if scaling == 'fit-blur':
+            processed_path = apply_fit_blur(processed_path)
+            scaling = 'crop'  # Use 'crop' mode since image is already sized to screen resolution
         
         # Validate transition
         transition = validate_transition(transition, backend_manager.supports_transitions())
