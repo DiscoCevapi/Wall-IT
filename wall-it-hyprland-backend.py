@@ -113,18 +113,18 @@ class HyprlandBackend:
                 return monitor
         return None
     
-    def set_wallpaper(self, wallpaper_path: Path, monitor: Optional[str] = None, transition: str = 'fade') -> bool:
+    def set_wallpaper(self, wallpaper_path: Path, monitor: Optional[str] = None, transition: str = 'fade', scaling: str = 'crop') -> bool:
         """Set wallpaper on specific monitor or all monitors using swww"""
         if not self.swww_available:
             print("Error: swww daemon is not running. Please start it with 'swww init'", file=sys.stderr)
             return False
-            
+
         try:
             # Generate colors with matugen first (before setting wallpaper)
             matugen_success = self._generate_matugen_colors(wallpaper_path)
-            
+
             cmd = ['swww', 'img', str(wallpaper_path)]
-            
+
             # Add transition settings
             if transition != 'none':
                 cmd.extend([
@@ -132,21 +132,24 @@ class HyprlandBackend:
                     '--transition-fps', '30',
                     '--transition-duration', '1.5'
                 ])
-            
+
+            # Add scaling mode
+            cmd.extend(['--resize', scaling])
+
             # Add monitor targeting if specified
             if monitor:
                 cmd.extend(['--outputs', monitor])
                 print(f"Wall-IT: Setting wallpaper on monitor {monitor} with {transition} transition")
             else:
                 print(f"Wall-IT: Setting wallpaper on all monitors with {transition} transition")
-            
+
             result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-            
+
             if matugen_success:
                 print(f"Wall-IT: Generated dynamic colors with matugen")
-            
+
             return True
-            
+
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
             print(f"Error setting wallpaper with swww: {error_msg}", file=sys.stderr)

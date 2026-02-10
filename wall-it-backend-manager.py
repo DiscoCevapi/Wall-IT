@@ -252,36 +252,87 @@ class BackendManager:
         """Load all available backends"""
         # Register Niri backend first
         self.backends['niri'] = NiriBackend
-        
-        # Import KDE backend only if we're in KDE
-        if 'KDE' in os.environ.get('XDG_CURRENT_DESKTOP', '').split(':'):
-            try:
-                kde_backend_path = Path(__file__).parent / "wall-it-kde-backend.py"
-                if kde_backend_path.exists():
-                    spec = importlib.util.spec_from_file_location("kde_backend", kde_backend_path)
-                    kde_module = importlib.util.module_from_spec(spec)
-                    spec.loader.exec_module(kde_module)
-                    self.backends['kde'] = kde_module.KDEBackend
-                else:
-                    print(f"Info: KDE backend file not found at {kde_backend_path}", file=sys.stderr)
-            except ImportError as e:
-                print(f"Info: KDE backend import failed: {e}", file=sys.stderr)
-            except Exception as e:
-                print(f"Warning: Failed to load KDE backend: {type(e).__name__}: {e}", file=sys.stderr)
+
+        # Import KDE backend
+        try:
+            kde_backend_path = Path(__file__).parent / "wall-it-kde-backend.py"
+            if kde_backend_path.exists():
+                spec = importlib.util.spec_from_file_location("kde_backend", kde_backend_path)
+                kde_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(kde_module)
+                self.backends['kde'] = kde_module.KDEBackend
+            else:
+                print(f"Info: KDE backend file not found at {kde_backend_path}", file=sys.stderr)
+        except ImportError as e:
+            print(f"Info: KDE backend import failed: {e}", file=sys.stderr)
+        except Exception as e:
+            print(f"Warning: Failed to load KDE backend: {type(e).__name__}: {e}", file=sys.stderr)
+
+        # Import Hyprland backend
+        try:
+            hyprland_backend_path = Path(__file__).parent / "wall-it-hyprland-backend.py"
+            if hyprland_backend_path.exists():
+                spec = importlib.util.spec_from_file_location("hyprland_backend", hyprland_backend_path)
+                hyprland_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(hyprland_module)
+                self.backends['hyprland'] = hyprland_module.HyprlandBackend
+            else:
+                print(f"Info: Hyprland backend file not found at {hyprland_backend_path}", file=sys.stderr)
+        except ImportError as e:
+            print(f"Info: Hyprland backend import failed: {e}", file=sys.stderr)
+        except Exception as e:
+            print(f"Warning: Failed to load Hyprland backend: {type(e).__name__}: {e}", file=sys.stderr)
+
+        # Import Labwc backend
+        try:
+            labwc_backend_path = Path(__file__).parent / "wall-it-labwc-backend.py"
+            if labwc_backend_path.exists():
+                spec = importlib.util.spec_from_file_location("labwc_backend", labwc_backend_path)
+                labwc_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(labwc_module)
+                self.backends['labwc'] = labwc_module.LabwcBackend
+            else:
+                print(f"Info: Labwc backend file not found at {labwc_backend_path}", file=sys.stderr)
+        except ImportError as e:
+            print(f"Info: Labwc backend import failed: {e}", file=sys.stderr)
+        except Exception as e:
+            print(f"Warning: Failed to load Labwc backend: {type(e).__name__}: {e}", file=sys.stderr)
     
     def _detect_backend(self):
         """Auto-detect the appropriate backend"""
-        # Try each backend in order of preference
-        for name, backend_class in self.backends.items():
-            try:
-                backend = backend_class()
-                if backend.is_available():
-                    self._active_backend = backend
-                    print(f"Wall-IT: Using {name.upper()} backend")
-                    return
-            except Exception as e:
-                print(f"Warning: Error testing {name} backend: {e}", file=sys.stderr)
+        # Check desktop environment first to prioritize the correct backend
+        import os
+        current_desktop = os.environ.get('XDG_CURRENT_DESKTOP', '').lower()
+        wayland_display = os.environ.get('WAYLAND_DISPLAY', '')
         
+        # Priority order based on detected environment
+        preferred_order = []
+        
+        if 'kde' in current_desktop:
+            preferred_order = ['kde', 'niri', 'hyprland', 'labwc']
+        elif 'hyprland' in current_desktop.lower():
+            preferred_order = ['hyprland', 'niri', 'kde', 'labwc']
+        elif 'labwc' in current_desktop.lower() or ('wlroots' in current_desktop.lower() and 'labwc' in os.popen('pgrep labwc 2>/dev/null || echo ""').read()):
+            preferred_order = ['labwc', 'niri', 'kde', 'hyprland']
+        elif 'niri' in current_desktop.lower():
+            preferred_order = ['niri', 'hyprland', 'kde', 'labwc']
+        else:
+            # Default order: try Niri first (since it's mentioned in the project name), then others
+            preferred_order = ['niri', 'hyprland', 'kde', 'labwc']
+        
+        # Try backends in preferred order
+        for name in preferred_order:
+            if name in self.backends:
+                try:
+                    backend_class = self.backends[name]
+                    backend = backend_class()
+                    if backend.is_available():
+                        self._active_backend = backend
+                        print(f"Wall-IT: Using {name.upper()} backend")
+                        return
+                except Exception as e:
+                    print(f"Warning: Error testing {name} backend: {e}", file=sys.stderr)
+
         print("Error: No compatible wallpaper backend found!", file=sys.stderr)
     
     def get_backend(self) -> Optional[WallpaperBackend]:

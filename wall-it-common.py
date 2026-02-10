@@ -258,53 +258,53 @@ def validate_transition(transition: str, backend_supports_transitions: bool) -> 
     return transition
 
 
-def set_wallpaper(wallpaper_path: Path, transition: str, effect: str = 'none', 
+def set_wallpaper(wallpaper_path: Path, transition: str, effect: str = 'none',
                   backend_manager=None) -> bool:
     """Set wallpaper using backend manager with transition effect and photo effects."""
     try:
         if not backend_manager:
             backend_manager = get_backend_manager()
-        
+
         # Apply effect if needed
         processed_path = wallpaper_path
         if effect != 'none':
             config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
             processed_path = apply_effect(wallpaper_path, effect, config.TEMP_DIR)
-        
+
         # Get keybind mode and determine target monitor
         keybind_mode = get_keybind_mode()
         target_monitor = None
-        
+
         if keybind_mode == "active":
             target_monitor = get_active_monitor(backend_manager)
             if target_monitor:
                 print(f"Wall-IT: Targeting active monitor: {target_monitor}")
-        
+
         # Get scaling mode
         scaling = get_wallpaper_scaling()
-        
+
         # Apply fit-blur processing if needed
         if scaling == 'fit-blur':
             processed_path = apply_fit_blur(processed_path)
             scaling = 'crop'  # Use 'crop' mode since image is already sized to screen resolution
-        
+
         # Validate transition
         transition = validate_transition(transition, backend_manager.supports_transitions())
-        
+
         # Set wallpaper using backend manager
         success = backend_manager.set_wallpaper(processed_path, target_monitor, transition, scaling)
-        
+
         if success:
             # Update current wallpaper symlink (always use original image)
             update_wallpaper_symlink(wallpaper_path)
-            
+
             effect_text = f" with {effect} effect" if effect != 'none' else ""
             transition_text = f" with {transition} transition" if transition != 'none' else ""
             scaling_text = f" using {scaling} scaling" if scaling != 'crop' else ""
             print(f"Wall-IT: Set wallpaper to {wallpaper_path.name}{transition_text}{effect_text}{scaling_text}")
-        
+
         return success
-        
+
     except Exception as e:
         print(f"Error setting wallpaper: {e}", file=sys.stderr)
         return False

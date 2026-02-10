@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Wall-IT
+Comment=A professional wallpaper manager for Linux
+Exec=wall-it-gui
+Icon=preferences-desktop-wallpaper
+Terminal=false
+Categories=Utility;Graphics;
+Keywords=wallpaper;desktop;background;image;
+StartupNotify=true
+MimeType=image/jpeg;image/png;image/gif;image/bmp;

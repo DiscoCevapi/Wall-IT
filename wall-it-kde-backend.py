@@ -174,7 +174,7 @@ class KDEBackend:
                 return self._set_wallpaper_swww(wallpaper_path, monitor, transition, scaling)
             else:
                 return self._set_wallpaper_kde_native(wallpaper_path, monitor)
-            
+
         except Exception as e:
             print(f"Error setting wallpaper: {e}", file=sys.stderr)
             return False

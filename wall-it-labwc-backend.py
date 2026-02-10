@@ -145,53 +145,56 @@ class LabwcBackend:
                 return monitor
         return None
     
-    def set_wallpaper(self, wallpaper_path: Path, monitor: Optional[str] = None, transition: str = 'fade') -> bool:
+    def set_wallpaper(self, wallpaper_path: Path, monitor: Optional[str] = None, transition: str = 'fade', scaling: str = 'crop') -> bool:
         """Set wallpaper on specific monitor or all monitors using swww"""
         if not self.swww_available:
             print("Error: swww daemon is not running. Please start it with 'swww-daemon'", file=sys.stderr)
             return False
-            
+
         try:
             # Generate colors with matugen first (SINGLE CALL - fixes slowness issue)
             matugen_success = self._generate_matugen_colors(wallpaper_path)
-            
+
             cmd = ['swww', 'img', str(wallpaper_path)]
-            
+
             # Add transition settings (using valid swww transitions)
-            valid_transitions = ['none', 'fade', 'left', 'right', 'top', 'bottom', 
+            valid_transitions = ['none', 'fade', 'left', 'right', 'top', 'bottom',
                                'wipe', 'wave', 'grow', 'center', 'outer']
             if transition not in valid_transitions:
                 transition = 'fade'
-            
+
             if transition != 'none':
                 cmd.extend([
                     '--transition-type', transition,
                     '--transition-fps', '30',
                     '--transition-duration', '1.5'
                 ])
-            
+
+            # Add scaling mode
+            cmd.extend(['--resize', scaling])
+
             # Add monitor targeting if specified
             if monitor:
                 cmd.extend(['--outputs', monitor])
                 print(f"Wall-IT: Setting wallpaper on monitor {monitor} with {transition} transition")
             else:
                 print(f"Wall-IT: Setting wallpaper on all monitors with {transition} transition")
-            
+
             result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-            
+
             # Save current wallpaper path
             cache_dir = Path.home() / ".cache" / "wall-it"
             cache_dir.mkdir(parents=True, exist_ok=True)
             wallpaper_file = cache_dir / "current_wallpaper"
             wallpaper_file.write_text(str(wallpaper_path))
-            
+
             if matugen_success:
                 print(f"Wall-IT: Generated dynamic colors with matugen")
                 # Apply colors to detected shell integrations
                 self._apply_shell_integrations()
-            
+
             return True
-            
+
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
             print(f"Error setting wallpaper with swww: {error_msg}", file=sys.stderr)

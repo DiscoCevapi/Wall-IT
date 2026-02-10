@@ -4,11 +4,22 @@ Wall-IT Startup Script - Initializes swww and sets the current wallpaper with sa
 """
 
 import sys
+import os
 import subprocess
 import time
 import importlib.util
 from pathlib import Path
 from typing import Optional
+
+# Import common utilities
+sys.path.insert(0, os.path.dirname(__file__))
+try:
+    import wall_it_common as common
+except ImportError:
+    common_path = Path(__file__).parent / "wall-it-common.py"
+    spec = importlib.util.spec_from_file_location("wall_it_common", common_path)
+    common = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(common)
 
 # Import configuration
 try:
@@ -189,18 +200,22 @@ def main() -> int:
     if current_effect != 'none':
         processed_path = apply_effect(wallpaper_path, current_effect, config.TEMP_DIR)
     
+    # Get scaling mode
+    scaling = common.get_wallpaper_scaling()
+
     # Set wallpaper with transition effect
     try:
         cmd = [
             'swww', 'img', str(processed_path),
             '--transition-fps', str(config.STARTUP_TRANSITION_FPS),
             '--transition-type', transition_effect,
-            '--transition-duration', str(config.STARTUP_TRANSITION_DURATION)
+            '--transition-duration', str(config.STARTUP_TRANSITION_DURATION),
+            '--resize', scaling
         ]
-        
+
         with open(config.LOG_FILE, 'a') as f:
             result = subprocess.run(cmd, stdout=f, stderr=f)
-        
+
         if result.returncode == 0:
             # Update current wallpaper symlink atomically (always use original image)
             temp_link = config.CURRENT_WALLPAPER_LINK.with_suffix('.tmp')
@@ -208,15 +223,16 @@ def main() -> int:
                 temp_link.unlink()
             temp_link.symlink_to(wallpaper_path)
             temp_link.replace(config.CURRENT_WALLPAPER_LINK)
-            
+
             effect_text = f" with {current_effect} effect" if current_effect != 'none' else ""
             transition_text = f" using {transition_effect} transition" if transition_effect != 'fade' else ""
-            print(f"Wall-IT: Set startup wallpaper to {wallpaper_path.name}{effect_text}{transition_text}")
+            scaling_text = f" with {scaling} scaling" if scaling != 'crop' else ""
+            print(f"Wall-IT: Set startup wallpaper to {wallpaper_path.name}{effect_text}{transition_text}{scaling_text}")
             return 0
         else:
             print("Error setting wallpaper", file=sys.stderr)
             return 1
-    
+
     except FileNotFoundError:
         print("Error: swww not found. Please install swww.", file=sys.stderr)
         return 1

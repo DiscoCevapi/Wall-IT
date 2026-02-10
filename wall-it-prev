@@ -89,7 +89,7 @@ def main() -> int:
         # Update state tracking
         if target_monitor:
             state_manager.set_current_wallpaper(target_monitor, prev_wallpaper)
-        
+
         if matugen_enabled:
             common.print_matugen_status(scheme)
         return 0
