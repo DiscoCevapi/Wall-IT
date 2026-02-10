@@ -4481,7 +4481,7 @@ class WallpaperApp(Gtk.ApplicationWindow):
             ('simple', 'Simple'),
             ('fade', 'Fade'),
             ('left', 'Slide Left'),
-            ('right', 'Slide Right'), 
+            ('right', 'Slide Right'),
             ('top', 'Slide Down'),
             ('bottom', 'Slide Up'),
             ('wipe', 'Wipe'),
@@ -4489,8 +4489,6 @@ class WallpaperApp(Gtk.ApplicationWindow):
             ('grow', 'Grow'),
             ('center', 'Center'),
             ('outer', 'Outer'),
-            ('any', 'Random Any'),
-            ('random', 'Random Mix'),
             ('none', 'None')
         ]
         transition_names = [display_name for _, display_name in transition_options]
@@ -5131,7 +5129,7 @@ class WallpaperApp(Gtk.ApplicationWindow):
         selected = dropdown.get_selected()
         if selected != Gtk.INVALID_LIST_POSITION:
             # Must match the order in the dropdown definition
-            transition_options = ['simple', 'fade', 'left', 'right', 'top', 'bottom', 'wipe', 'wave', 'grow', 'center', 'outer', 'any', 'random', 'none']
+            transition_options = ['simple', 'fade', 'left', 'right', 'top', 'bottom', 'wipe', 'wave', 'grow', 'center', 'outer', 'none']
             if selected < len(transition_options):
                 transition_id = transition_options[selected]
                 self.wallpaper_setter.set_transition_effect(transition_id)
