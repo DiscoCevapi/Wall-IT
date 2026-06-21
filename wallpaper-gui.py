@@ -414,38 +414,75 @@ class EnhancedFolderBrowser(Gtk.Window):
         self.destroy()
 
 class WeatherSync:
-    """Weather-based wallpaper selection similar to Asteroid app"""
-    
-    # Realistic weather condition mappings based on actual weather
-    WEATHER_MAPPINGS = {
-        'clear-day': ['sunny', 'bright', 'clear', 'blue sky', 'sunshine'],
-        'clear-night': ['night', 'dark', 'stars', 'moon', 'nighttime'],
-        'rain': ['rain', 'rainy', 'storm', 'drops', 'wet'],
-        'snow': ['snow', 'winter', 'snowy', 'white', 'cold'],
-        'sleet': ['sleet', 'ice', 'winter', 'cold'],
-        'wind': ['wind', 'windy', 'trees', 'movement'],
-        'fog': ['fog', 'mist', 'misty', 'cloudy', 'gray'],
-        'cloudy': ['cloudy', 'overcast', 'gray', 'clouds'],
-        'partly-cloudy-day': ['clouds', 'partly cloudy', 'scattered'],
-        'partly-cloudy-night': ['night', 'clouds', 'moon', 'dark']
+    """Weather-based wallpaper selection using real local weather from wttr.in"""
+
+    # Map wttr.in weather codes to our animation/condition types
+    # https://github.com/chubin/wttr.in
+    WTTTR_CONDITION_MAP = {
+        'Clear': 'clear-day',
+        'Sunny': 'clear-day', 
+        'Partly cloudy': 'partly-cloudy-day',
+        'Cloudy': 'cloudy',
+        'Overcast': 'cloudy',
+        'Mist': 'fog',
+        'Fog': 'fog',
+        'Freezing fog': 'fog',
+        'Patchy rain possible': 'rain',
+        'Light drizzle': 'rain',
+        'Patchy light drizzle': 'rain',
+        'Light rain': 'rain',
+        'Moderate rain': 'rain',
+        'Heavy rain': 'rain',
+        'Torrential rain': 'rain',
+        'Light rain shower': 'rain',
+        'Moderate rain shower': 'rain',
+        'Heavy rain shower': 'rain',
+        'Patchy snow possible': 'snow',
+        'Light snow': 'snow',
+        'Moderate snow': 'snow',
+        'Heavy snow': 'snow',
+        'Light snow shower': 'snow',
+        'Moderate snow shower': 'snow',
+        'Heavy snow shower': 'snow',
+        'Light sleet': 'snow',
+        'Moderate sleet': 'snow',
+        'Thundery outbreaks possible': 'rain',
+        'Patchy light rain with thunder': 'rain',
+        'Moderate or heavy rain with thunder': 'rain',
+        'Blowing snow': 'snow',
+        'Blizzard': 'snow',
+        'Hail': 'snow',
+        'Patchy light snow with thunder': 'snow',
+        'Moderate or heavy snow with thunder': 'snow',
     }
 
-    # Time-based mappings
-    TIME_MAPPINGS = {
-        'dawn': ['dawn', 'sunrise', 'morning', 'golden', 'orange'],
-        'morning': ['morning', 'bright', 'fresh', 'green'],
-        'noon': ['noon', 'bright', 'sunny', 'clear'],
-        'afternoon': ['afternoon', 'warm', 'golden'],
-        'sunset_transition': ['sunset', 'orange', 'red', 'golden', 'dusk', 'evening'],
-        'sunset': ['sunset', 'orange', 'red', 'golden', 'dusk'],
-        'night': ['night', 'dark', 'moon', 'stars', 'city lights']
+    # Condition descriptions by type
+    CONDITION_DESCRIPTIONS = {
+        'clear-day': ('☀️', 'Clear Day', ['sunny', 'bright', 'clear', 'blue sky', 'sunshine']),
+        'clear-night': ('🌙', 'Clear Night', ['night', 'dark', 'stars', 'moon', 'nighttime']),
+        'rain': ('🌧️', 'Rainy', ['rain', 'rainy', 'storm', 'drops', 'wet']),
+        'snow': ('❄️', 'Snowy', ['snow', 'winter', 'snowy', 'white', 'cold']),
+        'fog': ('🌫️', 'Foggy', ['fog', 'mist', 'misty', 'cloudy', 'gray']),
+        'cloudy': ('☁️', 'Cloudy', ['cloudy', 'overcast', 'gray', 'clouds']),
+        'partly-cloudy-day': ('⛅', 'Partly Cloudy', ['clouds', 'partly cloudy', 'scattered']),
+        'partly-cloudy-night': ('☁️', 'Cloudy Night', ['night', 'clouds', 'moon', 'dark']),
     }
-    
+
+    # Time period descriptions  
+    TIME_DESCRIPTIONS = {
+        'dawn': ('🌅', 'Dawn', ['dawn', 'sunrise', 'morning', 'golden', 'orange']),
+        'morning': ('🌤️', 'Morning', ['morning', 'bright', 'fresh', 'green']),
+        'noon': ('☀️', 'Midday', ['noon', 'bright', 'sunny', 'clear']),
+        'afternoon': ('⛅', 'Afternoon', ['afternoon', 'warm', 'partly cloudy']),
+        'sunset_transition': ('🌆', 'Sunset Approaching', ['sunset', 'orange', 'red', 'golden', 'dusk', 'evening']),
+        'sunset': ('🌇', 'Sunset', ['sunset', 'orange', 'red', 'golden', 'dusk']),
+        'night': ('🌙', 'Night', ['night', 'dark', 'moon', 'stars', 'city lights']),
+    }
+
     def __init__(self):
-        self.api_key = None
-        self.location = None
-        self.current_weather = None
-        self.current_time_period = self.get_current_time_period()
+        self._cached_weather = None
+        self._cache_time = 0
+        self._cache_ttl = 600  # Refresh weather every 10 minutes
         
     def get_current_time_period(self):
         """Get current time period for wallpaper selection"""
@@ -459,114 +496,116 @@ class WeatherSync:
             return 'morning'
         elif 11 <= hour < 14:
             return 'noon'
-        elif 14 <= hour < 16:  # Earlier afternoon
+        elif 14 <= hour < 16:
             return 'afternoon'
-        elif 16 <= hour < 18:  # Later afternoon/sunset transition
-            return 'sunset_transition'  # New time period for sunset-like effects
+        elif 16 <= hour < 18:
+            return 'sunset_transition'
         elif 18 <= hour < 20:
             return 'sunset'
         else:
             return 'night'
-    
+
+    def _fetch_real_weather(self):
+        """Fetch real weather data from wttr.in (no API key required)."""
+        try:
+            import urllib.request
+            import json
+            
+            url = "https://wttr.in/?format=j1"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Wall-IT/2.0'})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read().decode())
+            
+            current = data.get('current_condition', [{}])[0]
+            weather_desc = current.get('weatherDesc', [{}])[0].get('value', '')
+            temp_c = current.get('temp_C', '?')
+            feels_like = current.get('FeelsLikeC', '?')
+            humidity = current.get('humidity', '?')
+            wind_speed = current.get('windspeedKmph', '?')
+            
+            print(f"🌤️ Real weather: {weather_desc}, {temp_c}°C (feels {feels_like}°C)")
+            
+            return {
+                'description': weather_desc,
+                'temp_c': temp_c,
+                'feels_like': feels_like,
+                'humidity': humidity,
+                'wind_speed': wind_speed,
+            }
+        except Exception as e:
+            print(f"⚠️ Weather fetch failed: {e}")
+            return None
+
     def get_weather_description(self):
-        """Get current weather and time description"""
+        """Get current weather description using real data if available."""
+        import time as _time
         time_period = self.get_current_time_period()
-
-        # Simulate realistic weather conditions based on time of day
-        # In a real implementation, this would come from a weather API
-        import random
         
-        # For demo purposes, simulate different weather conditions
-        weather_conditions = [
-            'clear-day', 'clear-night', 'partly-cloudy-day', 'cloudy', 
-            'rain', 'fog', 'sunny'
-        ]
+        # Try to fetch real weather (cached for 10 min)
+        now = _time.time()
+        if now - self._cache_time > self._cache_ttl:
+            self._cached_weather = self._fetch_real_weather()
+            self._cache_time = now
         
-        # Determine likely weather based on time of day
-        if time_period in ['night', 'dawn', 'morning', 'noon', 'afternoon', 'sunset', 'sunset_transition']:
-            # Common weather conditions for daytime
-            simulated_weather = random.choices(
-                ['clear-day', 'partly-cloudy-day', 'cloudy', 'sunny'],
-                weights=[60, 20, 15, 5],  # Clear days are most common
-                k=1
-            )[0]
-        else:
-            simulated_weather = 'clear-night'
-
-        # For sunset/sunset_transition times, make it more likely to have colorful skies
-        if time_period in ['sunset', 'sunset_transition']:
-            # Increase chance of colorful sunset conditions
-            simulated_weather = random.choices(
-                ['clear-day', 'partly-cloudy-day', 'cloudy'],
-                weights=[30, 40, 30],  # Clouds at sunset create beautiful effects
-                k=1
-            )[0]
-
-        # Return appropriate description based on time period
-        if time_period == 'night':
-            return {
-                'condition': 'clear-night',
-                'description': '🌙 Clear Night',
-                'time_period': 'night',
-                'emoji': '🌙',
-                'recommended_keywords': ['night', 'dark', 'moon', 'stars', 'city lights', 'nighttime']
-            }
-        elif time_period == 'dawn':
-            return {
-                'condition': simulated_weather,
-                'description': '🌅 Dawn',
-                'time_period': 'dawn',
-                'emoji': '🌅',
-                'recommended_keywords': ['dawn', 'sunrise', 'morning', 'golden', 'orange']
-            }
-        elif time_period == 'morning':
-            return {
-                'condition': simulated_weather,
-                'description': '🌤️ Morning',
-                'time_period': 'morning',
-                'emoji': '🌤️',
-                'recommended_keywords': ['morning', 'bright', 'fresh', 'green']
-            }
-        elif time_period == 'noon':
-            return {
-                'condition': simulated_weather,
-                'description': '☀️ Midday',
-                'time_period': 'noon',
-                'emoji': '☀️',
-                'recommended_keywords': ['noon', 'bright', 'sunny', 'clear']
-            }
-        elif time_period == 'afternoon':
-            return {
-                'condition': simulated_weather,
-                'description': '⛅ Afternoon',
-                'time_period': 'afternoon',
-                'emoji': '⛅',
-                'recommended_keywords': ['afternoon', 'warm', 'partly cloudy']
-            }
-        elif time_period == 'sunset_transition':
-            return {
-                'condition': simulated_weather,
-                'description': '🌆 Sunset Approaching',
-                'time_period': 'sunset_transition',
-                'emoji': '🌆',
-                'recommended_keywords': ['sunset', 'orange', 'red', 'golden', 'dusk', 'evening']
-            }
-        elif time_period == 'sunset':
-            return {
-                'condition': simulated_weather,
-                'description': '🌇 Sunset',
-                'time_period': 'sunset',
-                'emoji': '🌇',
-                'recommended_keywords': ['sunset', 'orange', 'red', 'golden', 'dusk']
-            }
-        else:
-            return {
-                'condition': simulated_weather,
-                'description': '🌤️ Day',
-                'time_period': 'day',
-                'emoji': '🌤️',
-                'recommended_keywords': ['day', 'bright', 'clear']
-            }
+        # Determine condition from real weather or fallback
+        condition = None
+        if self._cached_weather and self._cached_weather.get('description'):
+            raw_desc = self._cached_weather['description']
+            # Map the real weather description to our condition types
+            for wttr_desc, our_cond in self.WTTTR_CONDITION_MAP.items():
+                if wttr_desc.lower() in raw_desc.lower() or raw_desc.lower() in wttr_desc.lower():
+                    condition = our_cond
+                    break
+            if not condition:
+                # Fallback: guess from keywords
+                raw_lower = raw_desc.lower()
+                if any(w in raw_lower for w in ['rain', 'drizzle', 'shower', 'thunder']):
+                    condition = 'rain'
+                elif any(w in raw_lower for w in ['snow', 'sleet', 'blizzard', 'hail']):
+                    condition = 'snow'
+                elif any(w in raw_lower for w in ['fog', 'mist', 'haze']):
+                    condition = 'fog'
+                elif any(w in raw_lower for w in ['cloud', 'overcast']):
+                    condition = 'cloudy'
+                elif any(w in raw_lower for w in ['clear', 'sunny']):
+                    condition = 'clear-day'
+                else:
+                    condition = 'partly-cloudy-day'
+        
+        # If no real data, use time-based default
+        if not condition:
+            if time_period == 'night':
+                condition = 'clear-night'
+            else:
+                condition = 'clear-day'
+        
+        # Night override: if it's night, use night versions
+        if time_period == 'night' and condition == 'clear-day':
+            condition = 'clear-night'
+        elif time_period == 'night' and condition == 'partly-cloudy-day':
+            condition = 'partly-cloudy-night'
+        
+        # Get emoji and description
+        cond_info = self.CONDITION_DESCRIPTIONS.get(condition, ('🌤️', 'Fair', ['day', 'bright', 'clear']))
+        time_info = self.TIME_DESCRIPTIONS.get(time_period, ('🌤️', 'Day', ['day', 'bright', 'clear']))
+        
+        # Build the display description
+        temp_str = ""
+        if self._cached_weather and 'temp_c' in self._cached_weather:
+            temp_str = f" {self._cached_weather['temp_c']}°C"
+        
+        emoji = cond_info[0]
+        desc = f"{cond_info[1]}{temp_str}"
+        keywords = list(set(cond_info[2] + time_info[2]))
+        
+        return {
+            'condition': condition,
+            'description': desc,
+            'time_period': time_period,
+            'emoji': emoji,
+            'recommended_keywords': keywords,
+            'raw_weather': self._cached_weather,
+        }
     
     def find_matching_wallpapers(self, wallpapers):
         """Find wallpapers that match current weather/time conditions"""
@@ -596,1608 +635,109 @@ class WeatherSync:
         return None
 
 class WeatherAnimationOverlay:
-    """Animated weather effects overlay (inspired by Asteroid app)"""
+    """Launches a separate process to render weather animations as desktop wallpaper overlay."""
+    
+    # Path to the overlay script (relative to this file)
+    OVERLAY_SCRIPT = Path(__file__).parent / "wall-it-weather-overlay.py"
+    # IPC directory for stop signal
+    IPC_DIR = Path.home() / ".cache" / "wall-it" / "weather-ipc"
+    STOP_FILE = IPC_DIR / "stop"
     
     def __init__(self, weather_sync):
         self.weather_sync = weather_sync
         self.animation_enabled = True
         self.overlay_process = None
-        
-    def create_weather_animation_script(self, weather_condition, wallpaper_path):
-        """Create a script that generates animated weather overlay using Cairo/GTK"""
-        script_content = f'''#!/usr/bin/env python3
-# Animated Weather Overlay Script (Asteroid-inspired)
-import gi
-gi.require_version('Gtk', '4.0')
-from gi.repository import Gtk, GLib, Gdk, GdkPixbuf, Gio
-import cairo
-import math
-import random
-import time
+        self.current_animation_type = None
 
-class WeatherOverlay(Gtk.ApplicationWindow):
-    def __init__(self, app, wallpaper_path, weather_condition):
-        super().__init__(application=app)
-        self.wallpaper_path = wallpaper_path
-        self.weather_condition = "{weather_condition}"
-        self.particles = []
-        self.animation_time = 0
-        
-        # Make window fullscreen and transparent
-        self.set_default_size(1920, 1080)
-        self.set_decorated(False)
-        self.fullscreen()
-        
-        # Create drawing area
-        self.drawing_area = Gtk.DrawingArea()
-        self.drawing_area.set_draw_func(self.draw_weather_overlay)
-        self.set_child(self.drawing_area)
-        
-        # Initialize particles based on weather condition
-        self.init_particles()
-        
-        # Start animation timer
-        GLib.timeout_add(33, self.update_animation)  # ~30 FPS
-        
-    def init_particles(self):
-        """Initialize particles based on weather condition"""
-        if self.weather_condition == "rain":
-            # Rain drops
-            for _ in range(150):
-                self.particles.append({{
-                    'x': random.uniform(0, 1920),
-                    'y': random.uniform(-200, 1080),
-                    'speed': random.uniform(8, 15),
-                    'length': random.uniform(10, 25)
-                }})
-        elif self.weather_condition == "snow":
-            # Snow flakes
-            for _ in range(80):
-                self.particles.append({{
-                    'x': random.uniform(0, 1920),
-                    'y': random.uniform(-200, 1080),
-                    'speed': random.uniform(1, 4),
-                    'size': random.uniform(3, 8),
-                    'rotation': random.uniform(0, 360)
-                }})
-        elif self.weather_condition == "night":
-            # Stars twinkling
-            for _ in range(40):
-                self.particles.append({{
-                    'x': random.uniform(0, 1920),
-                    'y': random.uniform(0, 400),  # Upper portion of screen
-                    'brightness': random.uniform(0.3, 1.0),
-                    'twinkle_speed': random.uniform(0.02, 0.1)
-                }})
-                
-    def draw_weather_overlay(self, area, cr, width, height):
-        """Draw animated weather overlay"""
-        # Clear background (transparent)
-        cr.set_operator(cairo.OPERATOR_CLEAR)
-        cr.paint()
-        cr.set_operator(cairo.OPERATOR_OVER)
-        
-        if self.weather_condition == "rain":
-            self.draw_rain(cr)
-        elif self.weather_condition == "snow":
-            self.draw_snow(cr)
-        elif self.weather_condition == "night":
-            self.draw_stars(cr)
-        elif self.weather_condition == "clouds":
-            self.draw_clouds(cr)
-            
-    def draw_rain(self, cr):
-        """Draw animated rain drops"""
-        cr.set_source_rgba(0.7, 0.8, 1.0, 0.6)  # Light blue rain
-        cr.set_line_width(2)
-        
-        for particle in self.particles:
-            cr.move_to(particle['x'], particle['y'])
-            cr.line_to(particle['x'] + 3, particle['y'] + particle['length'])
-            cr.stroke()
-            
-    def draw_snow(self, cr):
-        """Draw animated snow flakes"""
-        cr.set_source_rgba(1.0, 1.0, 1.0, 0.8)  # White snow
-        
-        for particle in self.particles:
-            # Draw snowflake as a small circle
-            cr.arc(particle['x'], particle['y'], particle['size'], 0, 2 * math.pi)
-            cr.fill()
-            
-    def draw_stars(self, cr):
-        """Draw twinkling stars for night mode"""
-        for particle in self.particles:
-            # Twinkling effect
-            brightness = particle['brightness'] * (0.5 + 0.5 * math.sin(self.animation_time * particle['twinkle_speed']))
-            cr.set_source_rgba(1.0, 1.0, 0.9, brightness)  # Warm white stars
-            
-            # Draw star as small diamond
-            size = 2
-            cr.move_to(particle['x'], particle['y'] - size)
-            cr.line_to(particle['x'] + size, particle['y'])
-            cr.line_to(particle['x'], particle['y'] + size)
-            cr.line_to(particle['x'] - size, particle['y'])
-            cr.close_path()
-            cr.fill()
-            
-    def draw_clouds(self, cr):
-        """Draw moving clouds"""
-        # Simple cloud shapes that move across screen
-        cloud_alpha = 0.3
-        cr.set_source_rgba(0.9, 0.9, 0.9, cloud_alpha)
-        
-        # Draw a few cloud shapes
-        cloud_offset = (self.animation_time * 0.5) % 2000
-        for i in range(3):
-            x = (i * 600 + cloud_offset) % 2000 - 200
-            y = 100 + i * 50
-            
-            # Draw cloud as overlapping circles
-            for j in range(5):
-                cr.arc(x + j * 30, y + random.uniform(-10, 10), 25, 0, 2 * math.pi)
-                cr.fill()
-            
-    def update_animation(self):
-        """Update particle positions and redraw"""
-        self.animation_time += 1
-        
-        for particle in self.particles:
-            if self.weather_condition == "rain":
-                particle['y'] += particle['speed']
-                if particle['y'] > 1200:
-                    particle['y'] = random.uniform(-100, -50)
-                    particle['x'] = random.uniform(0, 1920)
-                    
-            elif self.weather_condition == "snow":
-                particle['y'] += particle['speed']
-                particle['x'] += random.uniform(-1, 1)  # Drift effect
-                if particle['y'] > 1200:
-                    particle['y'] = random.uniform(-100, -50)
-                    particle['x'] = random.uniform(0, 1920)
-        
-        # Redraw
-        self.drawing_area.queue_draw()
-        return True  # Continue animation
-        
-    def on_key_press(self, controller, keyval, keycode, state):
-        """Handle key press to exit overlay"""
-        if keyval == Gdk.KEY_Escape or keyval == Gdk.KEY_q:
-            self.get_application().quit()
-            
-class WeatherOverlayApp(Gtk.Application):
-    def __init__(self, wallpaper_path, weather_condition):
-        super().__init__()
-        self.wallpaper_path = wallpaper_path
-        self.weather_condition = weather_condition
-        
-    def do_activate(self):
-        window = WeatherOverlay(self, self.wallpaper_path, self.weather_condition)
-        window.present()
-        
-        # Add key controller for escape
-        key_controller = Gtk.EventControllerKey()
-        key_controller.connect('key-pressed', window.on_key_press)
-        window.add_controller(key_controller)
-
-if __name__ == "__main__":
-    import sys
-    wallpaper_path = sys.argv[1] if len(sys.argv) > 1 else ""
-    weather_condition = sys.argv[2] if len(sys.argv) > 2 else "rain"
-    
-    app = WeatherOverlayApp(wallpaper_path, weather_condition)
-    app.run()
-'''
-        return script_content
-    
-    def show_weather_overlay(self, main_window, duration=10):
-        """Show animated weather overlay optimized for desktop environment"""
-        print(f"🎬 show_weather_overlay called with main_window={main_window is not None}, duration={duration}")
-        
-        if not self.animation_enabled:
-            print("🎬 Weather animations are disabled, returning early")
-            return
-
+    def resolve_animation_type(self):
+        """Resolve the animation type from weather conditions."""
         weather_info = self.weather_sync.get_weather_description()
-        condition = weather_info['time_period']
-        actual_condition = weather_info['condition']  # Get the actual weather condition
-        print(f"🎬 Weather time period detected: {condition}")
-        print(f"🎬 Actual weather condition: {actual_condition}")
-        print(f"🎬 Full weather info: {weather_info}")
-
-        # Map actual weather conditions to animation types (higher priority)
-        # Then fall back to time-based animations
-        weather_animation_map = {
-            'rain': 'rain',           # Rain drops
-            'snow': 'snow',           # Snow flakes
-            'sleet': 'snow',          # Sleet treated as snow
-            'fog': 'fog',             # Fog/mist
-            'wind': 'wind',           # Wind effects
-            'cloudy': 'clouds',       # Moving clouds
-            'partly-cloudy-day': 'partly_cloudy',  # Partial clouds with sun
-            'partly-cloudy-night': 'partly_cloudy_night',  # Partial clouds at night
-            'clear-night': 'night',   # Night stars
-            'clear-day': 'sunny',     # Sunny day with sun rays
-        }
-
-        # Time-based animations as fallback
-        time_animation_map = {
-            'night': 'night',         # Twinkling stars
-            'sunset': 'sunset',       # Sunset colors/effects
-            'dawn': 'dawn',           # Dawn colors
-            'noon': 'sunny',          # Sunny day with sun rays
-            'morning': 'sunny',       # Morning sun rays
-            'afternoon': 'partly_cloudy', # Afternoon with possible clouds
-        }
-
-        # First try to use actual weather condition, then time period
-        if actual_condition in weather_animation_map:
-            animation_type = weather_animation_map[actual_condition]
-            print(f"🎬 Using actual weather condition animation: {animation_type}")
-        elif condition in time_animation_map:
-            animation_type = time_animation_map[condition]
-            print(f"🎬 Using time-based animation: {animation_type}")
-        else:
-            animation_type = 'day'  # Default
-            print(f"🎬 Using default animation: {animation_type}")
-
-        print(f"🎬 Final mapped animation type: {animation_type}")
-
-        # Detect desktop environment for optimal overlay behavior
-        import os
-        desktop_env = os.environ.get('XDG_CURRENT_DESKTOP', '').lower()
-        print(f"🎬 Desktop environment detected: {desktop_env}")
-
-        # Also check if running under Wayland
-        wayland_display = os.environ.get('WAYLAND_DISPLAY')
-        is_wayland = bool(wayland_display)
-        print(f"🎬 Running under Wayland: {is_wayland}")
-
-        if desktop_env == 'kde':
-            print("🎬 Using KDE desktop overlay method")
-            self._show_kde_desktop_overlay(main_window, animation_type, duration)
-        elif is_wayland:
-            print("🎬 Using Wayland-compatible overlay method")
-            # Check if specifically running under niri
-            if desktop_env == 'niri':
-                print("🎬 Detected niri compositor, using niri-specific overlay method")
-                self._show_niri_overlay(main_window, animation_type, duration)
-            else:
-                self._show_standard_overlay(main_window, animation_type, duration)
-        else:
-            print(f"🎬 Using standard overlay method for environment: {desktop_env}")
-            self._show_standard_overlay(main_window, animation_type, duration)
-    
-    def _show_kde_desktop_overlay(self, main_window, animation_type, duration):
-        """Create KDE-optimized desktop overlay window"""
-        try:
-            from gi.repository import Gtk, GLib, Gdk
-            import cairo, math, random
-            
-            # Create overlay window optimized for KDE
-            overlay_window = Gtk.Window()
-            
-            # KDE-specific window properties for desktop overlay
-            overlay_window.set_decorated(False)
-            overlay_window.set_resizable(False)
-            overlay_window.set_modal(False)
-            overlay_window.set_deletable(False)
-            
-            # Don't make it transient - we want it as desktop overlay
-            # overlay_window.set_transient_for(main_window)  # Commented out for KDE
-            
-            # Make window span all monitors
-            overlay_window.fullscreen()
-            
-            # Set up GTK4 transparency
-            try:
-                css_provider = Gtk.CssProvider()
-                css_provider.load_from_data(b"""
-                window {
-                    background: rgba(0, 0, 0, 0);
-                    background-color: transparent;
-                }
-                """)
-                
-                display = Gdk.Display.get_default()
-                Gtk.StyleContext.add_provider_for_display(
-                    display, css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-                )
-                print("✅ KDE overlay transparency setup complete")
-            except Exception as e:
-                print(f"Warning: CSS transparency setup failed: {e}")
-            
-            # Create drawing area with transparent background
-            drawing_area = Gtk.DrawingArea()
-            drawing_area.set_draw_func(self._draw_kde_overlay_animation)
-            overlay_window.set_child(drawing_area)
-            
-            # Store animation data
-            overlay_window.animation_type = animation_type
-            overlay_window.particles = self._init_overlay_particles(animation_type)
-            overlay_window.animation_time = 0
-            
-            # Connect key press to close (Escape key)
-            key_controller = Gtk.EventControllerKey()
-            key_controller.connect('key-pressed', lambda c, k, kc, s: self._close_overlay(overlay_window) if k == Gdk.KEY_Escape else False)
-            overlay_window.add_controller(key_controller)
-            
-            # Set window title for wmctrl targeting
-            overlay_window.set_title("Wall_IT_Weather_Overlay")
-            
-            # Show overlay
-            overlay_window.present()
-            
-            # Force window to desktop layer after brief delay
-            GLib.timeout_add(500, lambda: self._ensure_kde_desktop_layer(overlay_window))
-            
-            # Start animation timer
-            def update_overlay():
-                if not overlay_window.get_mapped():
-                    return False
-                overlay_window.animation_time += 1
-                self._update_overlay_particles(overlay_window.particles, animation_type)
-                drawing_area.queue_draw()
-                return True
-            
-            timer_id = GLib.timeout_add(33, update_overlay)  # ~30 FPS
-            
-            # Store timer ID for cleanup
-            overlay_window._timer_id = timer_id
-            
-            # Auto-close after duration
-            def close_overlay():
-                self._close_overlay(overlay_window)
-                return False
-            
-            GLib.timeout_add_seconds(duration, close_overlay)
-            
-            print(f"KDE Desktop overlay created for {animation_type} animation")
-            
-        except Exception as e:
-            print(f"Error creating KDE weather overlay: {e}")
-            # Fallback to standard overlay
-            self._show_standard_overlay(main_window, animation_type, duration)
-    
-    def _show_standard_overlay(self, main_window, animation_type, duration):
-        """Create standard overlay window for non-KDE environments"""
-        try:
-            from gi.repository import Gtk, GLib, Gdk
-            import cairo, math, random
-
-            print(f"🎬 _show_standard_overlay: Creating overlay for animation type: {animation_type}")
-            print(f"🎬 _show_standard_overlay: Duration: {duration}")
-            print(f"🎬 _show_standard_overlay: Main window provided: {main_window is not None}")
-
-            # Create overlay window with Wayland/Niri compatibility
-            overlay_window = Gtk.Window()
-            print(f"🎬 _show_standard_overlay: Created overlay window object")
-
-            overlay_window.set_modal(False)
-            overlay_window.set_decorated(False)
-            overlay_window.set_resizable(False)
-
-            # Get screen dimensions for proper fullscreen
-            try:
-                display = Gdk.Display.get_default()
-                if display:
-                    print(f"🎬 _show_standard_overlay: Got display object")
-                    # Get monitor geometry for proper sizing
-                    monitor = display.get_primary_monitor()
-                    if monitor:
-                        print(f"🎬 _show_standard_overlay: Got primary monitor")
-                        geometry = monitor.get_geometry()
-                        print(f"🎬 _show_standard_overlay: Monitor geometry - Width: {geometry.width}, Height: {geometry.height}")
-                        overlay_window.set_default_size(geometry.width, geometry.height)
-
-                        # For Wayland/Niri, try different approaches
-                        # Try to set the window as a popup or override-redirect
-                        try:
-                            # Use Gdk.WindowTypeHint.DIALOG which might work better with Niri
-                            overlay_window.set_type_hint(Gdk.WindowTypeHint.DIALOG)
-                            print(f"🎬 _show_standard_overlay: Set window type hint to DIALOG")
-                        except Exception as hint_error:
-                            print(f"🎬 _show_standard_overlay: Error setting window type hint: {hint_error}")
-                            try:
-                                # Fallback to UTILITY which might work better for overlays
-                                overlay_window.set_type_hint(Gdk.WindowTypeHint.UTILITY)
-                                print(f"🎬 _show_standard_overlay: Set window type hint to UTILITY")
-                            except Exception as utility_error:
-                                print(f"🎬 _show_standard_overlay: Error setting utility type hint: {utility_error}")
-                                pass
-                    else:
-                        print(f"🎬 _show_standard_overlay: No primary monitor found, using fallback")
-                        # Fallback to common resolution
-                        overlay_window.set_default_size(1920, 1080)
-                else:
-                    print(f"🎬 _show_standard_overlay: No display object, using fallback resolution")
-                    overlay_window.set_default_size(1920, 1080)
-            except Exception as display_error:
-                print(f"🎬 _show_standard_overlay: Error getting display info: {display_error}")
-                # Fallback to common resolution
-                overlay_window.set_default_size(1920, 1080)
-
-            # Make window stay on top and be visible
-            try:
-                overlay_window.set_keep_above(True)
-                print(f"🎬 _show_standard_overlay: Set window to stay above")
-            except Exception as keep_above_error:
-                print(f"🎬 _show_standard_overlay: Error setting keep_above: {keep_above_error}")
-
-            overlay_window.set_accept_focus(False)  # Don't steal focus in Wayland
-            print(f"🎬 _show_standard_overlay: Set window to not accept focus")
-
-            # For Wayland/Niri, try to set opacity and visual properties
-            try:
-                overlay_window.set_opacity(0.95)  # Nearly opaque but not fully to ensure visibility
-                print(f"🎬 _show_standard_overlay: Set window opacity to 0.95")
-            except Exception as opacity_error:
-                print(f"🎬 _show_standard_overlay: Error setting opacity: {opacity_error}")
-                pass
-
-            # Create drawing area
-            drawing_area = Gtk.DrawingArea()
-            drawing_area.set_hexpand(True)
-            drawing_area.set_vexpand(True)
-            # Set drawing area size to match window
-            drawing_area.set_size_request(overlay_window.get_default_width(), overlay_window.get_default_height())
-            drawing_area.set_draw_func(self._draw_overlay_animation)
-            overlay_window.set_child(drawing_area)
-            print(f"🎬 _show_standard_overlay: Created and configured drawing area")
-
-            # Store animation data
-            overlay_window.animation_type = animation_type
-            overlay_window.particles = self._init_overlay_particles(animation_type)
-            overlay_window.animation_time = 0
-            print(f"🎬 _show_standard_overlay: Initialized animation data - Particles: {len(overlay_window.particles)}")
-
-            # Connect key press to close
-            key_controller = Gtk.EventControllerKey()
-            key_controller.connect('key-pressed', lambda c, k, kc, s: overlay_window.destroy() if k == Gdk.KEY_Escape else False)
-            overlay_window.add_controller(key_controller)
-            print(f"🎬 _show_standard_overlay: Connected key controller for ESC key")
-
-            # For Niri Wayland, we need to handle window presentation differently
-            # Show overlay - try different approaches for Wayland/Niri
-            # First try present, then show, then realize
-            print(f"🎬 _show_standard_overlay: Attempting to present overlay window...")
-            
-            # For Wayland/Niri, we need to ensure the window is properly mapped
-            def show_overlay():
-                try:
-                    overlay_window.present()
-                    print(f"🎬 _show_standard_overlay: Called overlay_window.present()")
-                    
-                    overlay_window.show()
-                    print(f"🎬 _show_standard_overlay: Called overlay_window.show()")
-                    
-                    # Force realization
-                    overlay_window.realize()
-                    print(f"🎬 _show_standard_overlay: Called overlay_window.realize()")
-                    
-                    # Get the GDK surface and try to configure it for Wayland
-                    try:
-                        surface = overlay_window.get_surface()
-                        if surface:
-                            # Request surface to be shown on top layer in Wayland
-                            print(f"🎬 _show_standard_overlay: Got surface, attempting to configure for Wayland")
-                            
-                            # Try to set surface properties for overlay
-                            try:
-                                # For Wayland compositors, we may need to set hints
-                                gdk_window = overlay_window.get_window()
-                                if gdk_window:
-                                    # Try to set the window as an overlay type
-                                    try:
-                                        gdk_window.set_type_hint(Gdk.WindowTypeHint.DIALOG)
-                                    except:
-                                        pass
-                                    
-                                    # Try to raise the window to the top
-                                    gdk_window.focus(Gdk.CURRENT_TIME)
-                                    gdk_window.raise_()
-                                    print(f"🎬 _show_standard_overlay: Raised and focused window")
-                            except Exception as window_props_error:
-                                print(f"🎬 _show_standard_overlay: Error setting window properties: {window_props_error}")
-                    except Exception as surface_error:
-                        print(f"🎬 _show_standard_overlay: Error getting surface: {surface_error}")
-                        
-                except Exception as show_error:
-                    print(f"🎬 _show_standard_overlay: Error showing overlay: {show_error}")
-                    import traceback
-                    traceback.print_exc()
-
-            # Schedule the showing to happen after the window is properly initialized
-            GLib.idle_add(show_overlay)
-            print(f"🎬 _show_standard_overlay: Scheduled overlay presentation")
-
-            print(f"🎬 _show_standard_overlay: Overlay window created for {animation_type}. Size: {overlay_window.get_default_width()}x{overlay_window.get_default_height()}")
-
-            # Start animation timer
-            def update_overlay():
-                try:
-                    overlay_window.animation_time += 1
-                    self._update_overlay_particles(overlay_window.particles, animation_type)
-                    drawing_area.queue_draw()
-                    return True
-                except Exception as update_error:
-                    print(f"🎬 _show_standard_overlay: Error in update_overlay: {update_error}")
-                    return False
-
-            timer_id = GLib.timeout_add(33, update_overlay)  # ~30 FPS
-            print(f"🎬 _show_standard_overlay: Started animation timer with ID: {timer_id}")
-
-            # Auto-close after duration
-            def close_overlay():
-                print(f"🎬 _show_standard_overlay: Closing overlay after {duration} seconds")
-                try:
-                    GLib.source_remove(timer_id)
-                except:
-                    pass
-                if overlay_window:
-                    try:
-                        overlay_window.destroy()
-                        print(f"🎬 _show_standard_overlay: Destroyed overlay window")
-                    except Exception as destroy_error:
-                        print(f"🎬 _show_standard_overlay: Error destroying overlay: {destroy_error}")
-                return False
-
-            GLib.timeout_add_seconds(duration, close_overlay)
-            print(f"🎬 _show_standard_overlay: Set up auto-close timer for {duration} seconds")
-
-        except Exception as e:
-            print(f"🎬 _show_standard_overlay: Error creating weather overlay: {e}")
-            import traceback
-            traceback.print_exc()
-
-    def _show_niri_overlay(self, main_window, animation_type, duration):
-        """Create Niri Wayland-specific overlay window"""
-        try:
-            from gi.repository import Gtk, GLib, Gdk
-            import cairo, math, random
-
-            print(f"🎬 _show_niri_overlay: Creating overlay for animation type: {animation_type}")
-            print(f"🎬 _show_niri_overlay: Duration: {duration}")
-            print(f"🎬 _show_niri_overlay: Main window provided: {main_window is not None}")
-
-            # Create overlay window optimized for Niri
-            overlay_window = Gtk.Window()
-            print(f"🎬 _show_niri_overlay: Created overlay window object")
-
-            overlay_window.set_modal(False)
-            overlay_window.set_decorated(False)
-            overlay_window.set_resizable(False)
-
-            # Get screen dimensions for proper fullscreen
-            try:
-                display = Gdk.Display.get_default()
-                if display:
-                    print(f"🎬 _show_niri_overlay: Got display object")
-                    # Get monitor geometry for proper sizing
-                    monitor = display.get_primary_monitor()
-                    if monitor:
-                        print(f"🎬 _show_niri_overlay: Got primary monitor")
-                        geometry = monitor.get_geometry()
-                        print(f"🎬 _show_niri_overlay: Monitor geometry - Width: {geometry.width}, Height: {geometry.height}")
-                        overlay_window.set_default_size(geometry.width, geometry.height)
-
-                        # For Niri, try to set the window as a popup which might work better
-                        try:
-                            # Use Gdk.WindowTypeHint.SPLASHSCREEN or UTILITY for overlays
-                            overlay_window.set_type_hint(Gdk.WindowTypeHint.SPLASHSCREEN)
-                            print(f"🎬 _show_niri_overlay: Set window type hint to SPLASHSCREEN")
-                        except Exception as hint_error:
-                            print(f"🎬 _show_niri_overlay: Error setting SPLASHSCREEN type hint: {hint_error}")
-                            try:
-                                # Fallback to UTILITY
-                                overlay_window.set_type_hint(Gdk.WindowTypeHint.UTILITY)
-                                print(f"🎬 _show_niri_overlay: Set window type hint to UTILITY")
-                            except Exception as utility_error:
-                                print(f"🎬 _show_niri_overlay: Error setting UTILITY type hint: {utility_error}")
-                    else:
-                        print(f"🎬 _show_niri_overlay: No primary monitor found, using fallback")
-                        # Fallback to common resolution
-                        overlay_window.set_default_size(1920, 1080)
-                else:
-                    print(f"🎬 _show_niri_overlay: No display object, using fallback resolution")
-                    overlay_window.set_default_size(1920, 1080)
-            except Exception as display_error:
-                print(f"🎬 _show_niri_overlay: Error getting display info: {display_error}")
-                # Fallback to common resolution
-                overlay_window.set_default_size(1920, 1080)
-
-            # Make window stay on top and be visible
-            try:
-                overlay_window.set_keep_above(True)
-                print(f"🎬 _show_niri_overlay: Set window to stay above")
-            except Exception as keep_above_error:
-                print(f"🎬 _show_niri_overlay: Error setting keep_above: {keep_above_error}")
-
-            # Don't set accept_focus for Niri to avoid stealing focus
-            overlay_window.set_accept_focus(False)
-            print(f"🎬 _show_niri_overlay: Set window to not accept focus")
-
-            # For Niri Wayland, try to set opacity and visual properties
-            try:
-                overlay_window.set_opacity(0.9)  # Slightly less opaque to ensure visibility
-                print(f"🎬 _show_niri_overlay: Set window opacity to 0.9")
-            except Exception as opacity_error:
-                print(f"🎬 _show_niri_overlay: Error setting opacity: {opacity_error}")
-                pass
-
-            # Create drawing area
-            drawing_area = Gtk.DrawingArea()
-            drawing_area.set_hexpand(True)
-            drawing_area.set_vexpand(True)
-            # Set drawing area size to match window
-            drawing_area.set_size_request(overlay_window.get_default_width(), overlay_window.get_default_height())
-            drawing_area.set_draw_func(self._draw_overlay_animation)
-            overlay_window.set_child(drawing_area)
-            print(f"🎬 _show_niri_overlay: Created and configured drawing area")
-
-            # Store animation data
-            overlay_window.animation_type = animation_type
-            overlay_window.particles = self._init_overlay_particles(animation_type)
-            overlay_window.animation_time = 0
-            print(f"🎬 _show_niri_overlay: Initialized animation data - Particles: {len(overlay_window.particles)}")
-
-            # Connect key press to close
-            key_controller = Gtk.EventControllerKey()
-            key_controller.connect('key-pressed', lambda c, k, kc, s: overlay_window.destroy() if k == Gdk.KEY_Escape else False)
-            overlay_window.add_controller(key_controller)
-            print(f"🎬 _show_niri_overlay: Connected key controller for ESC key")
-
-            # For Niri, we need to ensure the window is properly shown
-            def show_niri_overlay():
-                try:
-                    # Realize the window first
-                    overlay_window.realize()
-                    print(f"🎬 _show_niri_overlay: Window realized")
-                    
-                    # Then show the window
-                    overlay_window.show()
-                    print(f"🎬 _show_niri_overlay: Window shown")
-                    
-                    # Present the window to bring it to attention
-                    overlay_window.present()
-                    print(f"🎬 _show_niri_overlay: Window presented")
-                    
-                    # Get the GDK surface and try to configure it for Niri
-                    try:
-                        gdk_window = overlay_window.get_window()
-                        if gdk_window:
-                            print(f"🎬 _show_niri_overlay: Got GDK window, attempting to configure for Niri")
-                            
-                            # Try to set window properties specific to Niri
-                            try:
-                                # Set the window as an overlay - this is important for Niri
-                                gdk_window.set_accept_focus(False)
-                                
-                                # Try to raise the window to ensure it's visible
-                                gdk_window.raise_()
-                                print(f"🎬 _show_niri_overlay: Window raised")
-                                
-                                # Focus the window with current time
-                                gdk_window.focus(Gdk.CURRENT_TIME)
-                                print(f"🎬 _show_niri_overlay: Window focused")
-                                
-                            except Exception as window_props_error:
-                                print(f"🎬 _show_niri_overlay: Error setting window properties: {window_props_error}")
-                    except Exception as surface_error:
-                        print(f"🎬 _show_niri_overlay: Error getting GDK window: {surface_error}")
-                        
-                except Exception as show_error:
-                    print(f"🎬 _show_niri_overlay: Error showing overlay: {show_error}")
-                    import traceback
-                    traceback.print_exc()
-
-            # Schedule the showing to happen after the window is properly initialized
-            GLib.idle_add(show_niri_overlay)
-            print(f"🎬 _show_niri_overlay: Scheduled Niri overlay presentation")
-
-            print(f"🎬 _show_niri_overlay: Niri overlay window created for {animation_type}. Size: {overlay_window.get_default_width()}x{overlay_window.get_default_height()}")
-
-            # Start animation timer
-            def update_overlay():
-                try:
-                    overlay_window.animation_time += 1
-                    self._update_overlay_particles(overlay_window.particles, animation_type)
-                    drawing_area.queue_draw()
-                    return True
-                except Exception as update_error:
-                    print(f"🎬 _show_niri_overlay: Error in update_overlay: {update_error}")
-                    return False
-
-            timer_id = GLib.timeout_add(33, update_overlay)  # ~30 FPS
-            print(f"🎬 _show_niri_overlay: Started animation timer with ID: {timer_id}")
-
-            # Auto-close after duration
-            def close_overlay():
-                print(f"🎬 _show_niri_overlay: Closing overlay after {duration} seconds")
-                try:
-                    GLib.source_remove(timer_id)
-                except:
-                    pass
-                if overlay_window:
-                    try:
-                        overlay_window.destroy()
-                        print(f"🎬 _show_niri_overlay: Destroyed overlay window")
-                    except Exception as destroy_error:
-                        print(f"🎬 _show_niri_overlay: Error destroying overlay: {destroy_error}")
-                return False
-
-            GLib.timeout_add_seconds(duration, close_overlay)
-            print(f"🎬 _show_niri_overlay: Set up auto-close timer for {duration} seconds")
-
-        except Exception as e:
-            print(f"🎬 _show_niri_overlay: Error creating weather overlay: {e}")
-            import traceback
-            traceback.print_exc()
-            # Fallback to standard overlay if Niri-specific fails
-            self._show_standard_overlay(main_window, animation_type, duration)
-
-    def _ensure_kde_desktop_layer(self, window):
-        """Ensure window stays as desktop overlay in KDE"""
-        try:
-            import subprocess
-            
-            # Use wmctrl to set window as desktop-like overlay
-            try:
-                result = subprocess.run([
-                    'wmctrl', '-r', 'Wall_IT_Weather_Overlay',
-                    '-b', 'add,below,sticky'
-                ], capture_output=True, text=True)
-                
-                if result.returncode == 0:
-                    print("✅ wmctrl: Weather overlay set to desktop layer")
-                else:
-                    print(f"⚠️  wmctrl failed: {result.stderr}")
-                    
-            except FileNotFoundError:
-                print("⚠️  wmctrl not available for window management")
-            
-            # Try GTK methods if available (GTK3 compatibility)
-            try:
-                if hasattr(window, 'set_keep_below'):
-                    window.set_keep_below(True)
-                if hasattr(window, 'lower'):
-                    window.lower()
-                print("✅ GTK stacking methods applied")
-            except Exception as e:
-                print(f"GTK stacking failed: {e}")
-            
-            # Additional KDE-specific DBus commands
-            try:
-                # Get all KWin windows and modify our overlay
-                subprocess.run([
-                    'qdbus', 'org.kde.KWin', '/KWin',
-                    'org.kde.KWin.showDebugConsole'
-                ], capture_output=True, check=False)
-            except:
-                pass
-                
-        except Exception as e:
-            print(f"Warning: Could not enforce KDE desktop layer: {e}")
+        condition = weather_info['condition']
+        time_period = weather_info['time_period']
         
-        return False  # Don't repeat timer
-    
-    def _close_overlay(self, overlay_window):
-        """Properly close overlay window and cleanup resources"""
-        try:
-            if hasattr(overlay_window, '_timer_id'):
-                GLib.source_remove(overlay_window._timer_id)
-            overlay_window.destroy()
-        except:
-            pass
-    
-    def _draw_kde_overlay_animation(self, area, cr, width, height, data=None):
-        """Draw KDE-optimized overlay animation with proper transparency"""
-        import math
-        import random
+        WEATHER_ANIM_MAP = {
+            'rain': 'rain', 'snow': 'snow', 'sleet': 'snow', 'fog': 'fog',
+            'wind': 'wind', 'cloudy': 'clouds',
+            'partly-cloudy-day': 'partly_cloudy', 'partly-cloudy-night': 'partly_cloudy_night',
+            'clear-night': 'night', 'clear-day': 'sunny',
+        }
+        TIME_ANIM_MAP = {
+            'night': 'night', 'sunset': 'sunset', 'sunset_transition': 'sunset',
+            'dawn': 'dawn', 'noon': 'sunny', 'morning': 'sunny', 'afternoon': 'partly_cloudy',
+        }
+        
+        if condition in WEATHER_ANIM_MAP:
+            return WEATHER_ANIM_MAP[condition]
+        if time_period in TIME_ANIM_MAP:
+            return TIME_ANIM_MAP[time_period]
+        return 'sunny'
 
-        # Get window data
-        window = area.get_root()
-        if not hasattr(window, 'animation_type'):
+    def start_animation(self):
+        """Launch the standalone overlay as a subprocess."""
+        if not self.animation_enabled:
             return
+            
+        # Kill any existing overlay first
+        self.stop_animation()
+        
+        anim_type = self.resolve_animation_type()
+        self.current_animation_type = anim_type
+        
+        # Ensure the overlay script exists
+        overlay_path = self.OVERLAY_SCRIPT
+        if not overlay_path.exists():
+            print(f"❌ Overlay script not found: {overlay_path}")
+            return
+        
+        # Clean any stale IPC
+        if self.STOP_FILE.exists():
+            self.STOP_FILE.unlink(missing_ok=True)
+        
+        # Launch the overlay as a background process
+        try:
+            self.overlay_process = subprocess.Popen(
+                [sys.executable, str(overlay_path)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True
+            )
+            weather_info = self.weather_sync.get_weather_description()
+            print(f"🎬 Weather overlay launched: {anim_type} ({weather_info['description']})")
+            print(f"🎬 PID: {self.overlay_process.pid}")
+        except Exception as e:
+            print(f"❌ Failed to launch weather overlay: {e}")
 
-        animation_type = window.animation_type
-        particles = window.particles
-        animation_time = window.animation_time
+    def stop_animation(self):
+        """Stop the overlay by sending a signal file."""
+        if self.overlay_process:
+            # Create stop signal file
+            self.IPC_DIR.mkdir(parents=True, exist_ok=True)
+            self.STOP_FILE.write_text("stop")
+            
+            # Wait briefly for process to exit gracefully
+            try:
+                self.overlay_process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                # Force kill if it doesn't respond
+                try:
+                    self.overlay_process.kill()
+                except:
+                    pass
+            self.overlay_process = None
+            self.current_animation_type = None
+            print("🎬 Weather overlay stopped")
+            
+            # Clean up stop file
+            self.STOP_FILE.unlink(missing_ok=True)
 
-        # Semi-transparent background for better visibility against any wallpaper
-        cr.set_operator(cairo.OPERATOR_SOURCE)  # Changed from OPERATOR_CLEAR to SOURCE for better visibility
-        cr.set_source_rgba(0, 0, 0, 0.05)  # Very slightly transparent black for contrast
-        cr.paint()
-
-        # Draw effects with enhanced visibility for desktop overlay
-        if animation_type in ['clear-night', 'night']:
-            # Stars/sparkles with improved twinkling - increased visibility
-            for particle in particles:
-                # Use phase offset for varied twinkling
-                brightness = particle['brightness'] * (0.4 + 0.6 * abs(math.sin(animation_time * particle['twinkle_speed'] + particle['twinkle_phase'])))
-
-                # Consistent night stars regardless of specific type
-                cr.set_source_rgba(1.0, 1.0, 0.95, brightness * 0.9)  # More visible white night stars
-
-                # Draw enhanced star with glow effect
-                size = particle['size'] * 2.0  # Larger for better visibility
-                x, y = particle['x'], particle['y']
-
-                # Main star
-                cr.arc(x, y, size, 0, 2 * math.pi)
-                cr.fill()
-
-                # Add enhanced glow for better visibility
-                if brightness > 0.6:
-                    glow_alpha = brightness * 0.5
-                    cr.set_source_rgba(1.0, 1.0, 0.95, glow_alpha)
-                    cr.arc(x, y, size * 2.5, 0, 2 * math.pi)
-                    cr.fill()
-
-        elif animation_type in ['partly-cloudy-day', 'cloudy', 'sunset', 'sunset_transition', 'dawn']:
-            # Atmospheric/sunset effects - colorful skies with subtle particles
-            for particle in particles:
-                # Calculate pulsing effect for atmospheric particles
-                pulse = 0.5 + 0.5 * math.sin(animation_time * particle['pulse_speed'] + particle['pulse_phase'])
-                opacity = particle['opacity'] * pulse
-
-                # Color varies based on time period for realistic atmospheric effects
-                if animation_type in ['sunset', 'sunset_transition']:
-                    # Sunset colors: oranges, reds, purples
-                    hue = random.choice([(1.0, 0.4, 0.2), (1.0, 0.6, 0.2), (0.9, 0.7, 0.3)])  # Red-orange-yellow
-                elif animation_type == 'dawn':
-                    # Dawn colors: soft pinks, oranges, yellows
-                    hue = random.choice([(1.0, 0.7, 0.5), (1.0, 0.8, 0.4), (0.9, 0.8, 0.6)])  # Pink-orange-yellow
-                elif animation_type in ['cloudy', 'partly-cloudy-day']:
-                    # Cloudy/day colors: soft blues, grays, whites
-                    hue = random.choice([(0.7, 0.8, 1.0), (0.8, 0.8, 0.9), (0.9, 0.9, 1.0)])  # Soft blues/grays
-                else:
-                    # Fallback to sunset colors
-                    hue = (1.0, 0.6, 0.3)
-
-                if particle['ray_type'] == 'ray':
-                    # Draw atmospheric rays - softer and more colorful
-                    cr.set_source_rgba(hue[0], hue[1], hue[2], opacity * 0.5)
-                    cr.set_line_width(particle['thickness'] * 1.5)
-
-                    # Draw ray from center outward
-                    end_x = particle['x'] + math.cos(particle['angle']) * particle['length'] * pulse
-                    end_y = particle['y'] + math.sin(particle['angle']) * particle['length'] * pulse
-
-                    cr.move_to(particle['x'], particle['y'])
-                    cr.line_to(end_x, end_y)
-                    cr.stroke()
-                elif particle['ray_type'] == 'glow':
-                    # Draw atmospheric glow - soft and colorful
-                    cr.set_source_rgba(hue[0], hue[1], hue[2], opacity * 0.4)
-                    radius = 45 * pulse
-                    cr.arc(particle['x'], particle['y'], radius, 0, 2 * math.pi)
-                    cr.fill()
-                elif particle['ray_type'] == 'atmosphere':
-                    # Draw atmospheric haze/particles - soft and diffused
-                    cr.set_source_rgba(hue[0], hue[1], hue[2], opacity * 0.3)
-                    # Draw as a soft ellipse for atmospheric effect
-                    cr.save()
-                    cr.translate(particle['x'], particle['y'])
-                    cr.scale(1.8, 1.0)  # Elliptical shape for atmospheric effect
-                    cr.arc(0, 0, 25 * pulse, 0, 2 * math.pi)
-                    cr.fill()
-                    cr.restore()
-
-        elif animation_type in ['clear-day', 'sunny', 'noon', 'morning', 'afternoon', 'day']:
-            # Draw sun rays or light particles for daytime (KDE version) - with distinct characteristics
-            for particle in particles:
-                # Calculate pulsing effect
-                pulse = 0.5 + 0.5 * math.sin(animation_time * particle['pulse_speed'] + particle['pulse_phase'])
-                opacity = particle['opacity'] * pulse
-
-                # Adjust appearance based on specific time period
-                if animation_type == 'noon':
-                    # Noon: More intense, direct sunlight
-                    base_color = (1.0, 0.95, 0.7)  # Brighter yellow
-                    intensity_factor = 1.3
-                elif animation_type == 'morning':
-                    # Morning: Softer, warmer tones
-                    base_color = (1.0, 0.85, 0.6)  # Warmer, softer
-                    intensity_factor = 1.0
-                elif animation_type in ['afternoon', 'clear-day', 'sunny', 'day']:
-                    # Afternoon/clear day: Golden, warm but not as intense as noon
-                    base_color = (1.0, 0.88, 0.65)  # Golden tone
-                    intensity_factor = 1.15
-                else:  # day (fallback)
-                    base_color = (1.0, 0.9, 0.7)
-                    intensity_factor = 1.0
-
-                if particle['ray_type'] == 'ray':
-                    # Draw sun rays emanating from center - more visible
-                    cr.set_source_rgba(base_color[0], base_color[1], base_color[2], opacity * 0.7 * intensity_factor)
-                    cr.set_line_width(particle['thickness'] * 2.0 * intensity_factor)  # Much thicker for visibility
-
-                    # Draw ray from center outward
-                    end_x = particle['x'] + math.cos(particle['angle']) * particle['length'] * pulse
-                    end_y = particle['y'] + math.sin(particle['angle']) * particle['length'] * pulse
-
-                    cr.move_to(particle['x'], particle['y'])
-                    cr.line_to(end_x, end_y)
-                    cr.stroke()
-
-                elif particle['ray_type'] == 'glow':
-                    # Draw circular glow effect - more visible
-                    cr.set_source_rgba(base_color[0], base_color[1], base_color[2]*0.9, opacity * 0.5 * intensity_factor)
-                    radius = 40 * pulse * intensity_factor  # Larger radius
-                    cr.arc(particle['x'], particle['y'], radius, 0, 2 * math.pi)
-                    cr.fill()
-
-                elif particle['ray_type'] == 'beam':
-                    # Draw vertical light beam - more visible
-                    cr.set_source_rgba(base_color[0], base_color[1]*0.95, base_color[2]*0.9, opacity * 0.6 * intensity_factor)
-                    x = particle['x']
-                    y_top = particle['y']
-                    y_bottom = y_top + particle['length']
-
-                    # Create gradient for beam
-                    gradient = cairo.LinearGradient(x, y_top, x, y_bottom)
-                    gradient.add_color_stop_rgba(0, base_color[0], base_color[1]*0.95, base_color[2]*0.9, opacity * 0.8 * intensity_factor)
-                    gradient.add_color_stop_rgba(1, base_color[0], base_color[1]*0.95, base_color[2]*0.9, 0)
-                    cr.set_source(gradient)
-
-                    # Draw beam as rectangle - wider for visibility
-                    width_factor = 8 * intensity_factor
-                    cr.rectangle(x - width_factor, y_top, width_factor * 2, particle['length'])
-                    cr.fill()
-
-        elif animation_type == 'rain':
-            # Enhanced rain with variable thickness - more visible
-            for particle in particles:
-                # Calculate brightness based on length
-                alpha = 0.9 * (particle['length'] / 35.0)  # Higher base alpha
-                cr.set_source_rgba(0.5, 0.6, 0.9, alpha)  # More vibrant blue
-                cr.set_line_width(particle['thickness'] * 2.0)  # Much thicker for visibility
-                cr.move_to(particle['x'], particle['y'])
-                cr.line_to(particle['x'] + 4, particle['y'] + particle['length'])  # Longer lines
-                cr.stroke()
-
-        elif animation_type == 'snow':
-            # Enhanced snow with oscillation effect - more visible
-            for particle in particles:
-                # Calculate opacity based on size
-                alpha = 0.9 + (particle['size'] / 7.0) * 0.1  # Higher base alpha
-                cr.set_source_rgba(0.95, 1.0, 1.0, alpha)  # Slightly bluish-white
-
-                # Add gentle oscillation to position
-                oscillation_offset = math.sin(particle['oscillation']) * 3
-                x_pos = particle['x'] + oscillation_offset
-
-                # Draw snowflake (larger for better visibility)
-                size = particle['size'] * 1.8
-                cr.arc(x_pos, particle['y'], size, 0, 2 * math.pi)
-                cr.fill()
-
-                # Add subtle highlight for better visibility
-                cr.set_source_rgba(1.0, 1.0, 1.0, alpha * 0.7)
-                cr.arc(x_pos - 1, particle['y'] - 1, size * 0.8, 0, 2 * math.pi)
-                cr.fill()
-
-        elif animation_type == 'fog':
-            # Draw fog/mist particles - soft and translucent
-            for particle in particles:
-                # Soft gray/white fog particles
-                alpha = particle['opacity']
-                cr.set_source_rgba(0.9, 0.92, 0.95, alpha)  # Light grayish-white
-                
-                # Draw as soft circles for fog effect
-                size = particle['size']
-                x, y = particle['x'], particle['y']
-                
-                # Draw soft fog cloud
-                cr.arc(x, y, size, 0, 2 * math.pi)
-                cr.fill()
-                
-                # Add subtle glow for mist effect
-                cr.set_source_rgba(0.95, 0.97, 1.0, alpha * 0.4)
-                cr.arc(x, y, size * 1.8, 0, 2 * math.pi)
-                cr.fill()
-
-        # Ensure the drawing is properly flushed
-        cr.stroke_preserve()
-    
     def toggle_animation(self):
-        """Toggle weather animation on/off"""
+        """Toggle weather animation on/off. Returns new state."""
         self.animation_enabled = not self.animation_enabled
+        if self.animation_enabled:
+            self.start_animation()
+        else:
+            self.stop_animation()
         return self.animation_enabled
-    
-    def _init_overlay_particles(self, animation_type):
-        """Initialize particles for overlay animation"""
-        import random
-        particles = []
-
-        # Get screen dimensions dynamically
-        try:
-            from gi.repository import Gdk
-            display = Gdk.Display.get_default()
-            monitor = display.get_primary_monitor() if display.get_primary_monitor() else display.get_monitor(0)
-            geometry = monitor.get_geometry()
-            screen_width = geometry.width
-            screen_height = geometry.height
-        except:
-            # Fallback to common resolution
-            screen_width = 1920
-            screen_height = 1080
-
-        # Handle actual weather conditions first, then fallback to time-based
-        if animation_type in ['clear-night', 'night']:
-            # Stars/sparkles - increase density for better visual effect
-            for _ in range(120):  # Increased for better visibility
-                particles.append({
-                    'x': random.uniform(0, screen_width),
-                    'y': random.uniform(0, screen_height * 0.6),  # Top 60% of screen
-                    'brightness': random.uniform(0.5, 1.0),  # Higher minimum brightness
-                    'twinkle_speed': random.uniform(0.03, 0.12),  # Slightly faster twinkling
-                    'size': random.uniform(2, 4),  # Larger size for better visibility
-                    'twinkle_phase': random.uniform(0, 2 * math.pi)  # Phase offset for twinkling
-                })
-        elif animation_type in ['partly_cloudy', 'partly_cloudy_day', 'partly-cloudy-day']:
-            # Partly cloudy with sun rays - mix of clouds and sun effects
-            # Add cloud-like particles
-            for _ in range(15):  # Fewer clouds
-                particles.append({
-                    'x': random.uniform(0, screen_width),
-                    'y': random.uniform(0, screen_height * 0.4),  # Top portion
-                    'size': random.uniform(30, 80),  # Larger cloud-like particles
-                    'speed_x': random.uniform(-0.5, 0.5),  # Slow horizontal movement
-                    'opacity': random.uniform(0.3, 0.6),  # Semi-transparent
-                    'type': 'cloud'
-                })
-            # Add some sun rays
-            for _ in range(20):  # Fewer sun rays than clear day
-                particles.append({
-                    'x': random.uniform(screen_width * 0.3, screen_width * 0.7),  # Center area
-                    'y': random.uniform(screen_height * 0.1, screen_height * 0.3),  # Top area
-                    'angle': random.uniform(0, 2 * math.pi),  # Direction of ray
-                    'length': random.uniform(30, 90),  # Shorter rays for partly cloudy
-                    'thickness': random.uniform(2.0, 4.5),  # Medium thickness
-                    'opacity': random.uniform(0.3, 0.6),  # More subtle
-                    'pulse_speed': random.uniform(0.05, 0.09),  # Gentle pulsing
-                    'pulse_phase': random.uniform(0, 2 * math.pi),  # Phase for pulsing
-                    'ray_type': random.choice(['ray', 'glow']),  # Sun rays and glows
-                    'type': 'sun_ray'
-                })
-        elif animation_type in ['partly_cloudy_night', 'partly-cloudy-night']:
-            # Partly cloudy at night - mix of clouds and stars
-            # Add cloud-like particles
-            for _ in range(15):  # Fewer clouds
-                particles.append({
-                    'x': random.uniform(0, screen_width),
-                    'y': random.uniform(0, screen_height * 0.4),  # Top portion
-                    'size': random.uniform(30, 80),  # Larger cloud-like particles
-                    'speed_x': random.uniform(-0.3, 0.3),  # Slow horizontal movement
-                    'opacity': random.uniform(0.4, 0.7),  # Slightly more opaque at night
-                    'type': 'cloud'
-                })
-            # Add some stars
-            for _ in range(60):  # Fewer stars due to clouds
-                particles.append({
-                    'x': random.uniform(0, screen_width),
-                    'y': random.uniform(0, screen_height * 0.5),  # Top half
-                    'brightness': random.uniform(0.4, 0.9),  # Variable brightness
-                    'twinkle_speed': random.uniform(0.02, 0.1),  # Twinkling
-                    'size': random.uniform(1.5, 3),  # Smaller stars
-                    'twinkle_phase': random.uniform(0, 2 * math.pi),  # Phase offset for twinkling
-                    'type': 'star'
-                })
-        elif animation_type in ['clear-day', 'sunny', 'noon', 'morning', 'afternoon', 'day']:
-            # Sun rays or light particles for daytime - with distinct characteristics
-            num_particles = 45
-
-            # Determine characteristics based on specific time period if provided
-            if animation_type == 'noon':
-                # Noon: More intense, direct rays
-                length_range = (40, 140)  # Longer rays
-                thickness_range = (3, 7)   # Thicker rays
-                opacity_range = (0.5, 0.9) # Higher opacity
-                pulse_range = (0.07, 0.13) # Slightly faster pulsing
-            elif animation_type == 'morning':
-                # Morning: Softer, gentler rays
-                length_range = (25, 100)   # Shorter rays
-                thickness_range = (2, 5)   # Thinner rays
-                opacity_range = (0.3, 0.7) # Lower opacity
-                pulse_range = (0.05, 0.10) # Slower pulsing
-            elif animation_type == 'afternoon':
-                # Afternoon: Golden, warm rays
-                length_range = (30, 120)   # Medium rays
-                thickness_range = (2.5, 6) # Medium thickness
-                opacity_range = (0.4, 0.8) # Medium opacity
-                pulse_range = (0.06, 0.12) # Medium pulsing
-            elif animation_type in ['clear-day', 'sunny', 'day']:
-                # General clear/sunny day
-                length_range = (35, 130)   # Balanced rays
-                thickness_range = (2.5, 6.5) # Balanced thickness
-                opacity_range = (0.45, 0.85) # Balanced opacity
-                pulse_range = (0.06, 0.11) # Balanced pulsing
-            else:  # fallback
-                length_range = (30, 120)
-                thickness_range = (2, 6)
-                opacity_range = (0.4, 0.8)
-                pulse_range = (0.06, 0.12)
-
-            for _ in range(num_particles):
-                particles.append({
-                    'x': random.uniform(screen_width * 0.2, screen_width * 0.8),  # Wider center area
-                    'y': random.uniform(screen_height * 0.05, screen_height * 0.5),  # Higher top area
-                    'angle': random.uniform(0, 2 * math.pi),  # Direction of ray
-                    'length': random.uniform(length_range[0], length_range[1]),  # Length of sun ray
-                    'thickness': random.uniform(thickness_range[0], thickness_range[1]),  # Thickness of ray
-                    'opacity': random.uniform(opacity_range[0], opacity_range[1]),  # Opacity of ray
-                    'pulse_speed': random.uniform(pulse_range[0], pulse_range[1]),  # Pulsing speed
-                    'pulse_phase': random.uniform(0, 2 * math.pi),  # Phase for pulsing
-                    'ray_type': random.choice(['ray', 'glow', 'beam'])  # Type of light effect
-                })
-        elif animation_type in ['cloudy', 'sunset', 'sunset_transition', 'dawn']:
-            # For cloudy/sunset conditions - mix of atmospheric effects
-            # More atmospheric particles for colorful skies
-            for _ in range(30):  # Fewer rays but more atmosphere
-                particles.append({
-                    'x': random.uniform(screen_width * 0.1, screen_width * 0.9),  # Wider spread
-                    'y': random.uniform(screen_height * 0.05, screen_height * 0.6),  # Higher area
-                    'angle': random.uniform(0, 2 * math.pi),
-                    'length': random.uniform(20, 100),  # Shorter for atmospheric effect
-                    'thickness': random.uniform(1.5, 4),  # Thinner for subtle effect
-                    'opacity': random.uniform(0.2, 0.6),  # More variation for atmosphere
-                    'pulse_speed': random.uniform(0.04, 0.09),  # Slower pulsing
-                    'pulse_phase': random.uniform(0, 2 * math.pi),
-                    'ray_type': random.choice(['ray', 'glow', 'atmosphere'])  # Include atmospheric effects
-                })
-        elif animation_type == 'rain':
-            # Rain drops - adjust for screen size
-            for _ in range(int(200 * (screen_width / 1920))):  # Increased for better visibility
-                particles.append({
-                    'x': random.uniform(0, screen_width),
-                    'y': random.uniform(-200, screen_height),
-                    'speed': random.uniform(15, 25),  # Faster for better effect
-                    'length': random.uniform(20, 45),  # Longer for visibility
-                    'thickness': random.uniform(2.0, 4.0)  # Thicker for visibility
-                })
-        elif animation_type == 'snow':
-            # Snow flakes - adjust for screen size
-            for _ in range(int(120 * (screen_width / 1920))):  # Increased for better visibility
-                particles.append({
-                    'x': random.uniform(0, screen_width),
-                    'y': random.uniform(-200, screen_height),
-                    'speed': random.uniform(1.5, 4),  # Slightly faster
-                    'size': random.uniform(4, 9),  # Larger for better visibility
-                    'drift': random.uniform(-1.5, 1.5),  # More drift variation
-                    'oscillation': random.uniform(0, 2 * math.pi),  # Side-to-side movement
-                    'oscillation_speed': random.uniform(0.03, 0.07)  # Slightly faster oscillation
-                })
-        elif animation_type == 'fog':
-            # Fog/mist particles - slow moving, low opacity
-            for _ in range(int(150 * (screen_width / 1920))):
-                particles.append({
-                    'x': random.uniform(0, screen_width),
-                    'y': random.uniform(0, screen_height),
-                    'speed_x': random.uniform(-0.5, 0.5),  # Slow horizontal movement
-                    'speed_y': random.uniform(-0.2, 0.2),  # Very slow vertical movement
-                    'size': random.uniform(15, 40),  # Large soft particles
-                    'opacity': random.uniform(0.1, 0.3),  # Low opacity for fog effect
-                    'drift': random.uniform(0, 2 * math.pi),  # Slow drifting
-                    'drift_speed': random.uniform(0.01, 0.03)  # Very slow drift
-                })
-        elif animation_type == 'wind':
-            # Wind effect - moving particles representing air movement
-            for _ in range(int(80 * (screen_width / 1920))):
-                particles.append({
-                    'x': random.uniform(0, screen_width),
-                    'y': random.uniform(0, screen_height),
-                    'speed_x': random.uniform(1.0, 4.0),  # Horizontal movement
-                    'speed_y': random.uniform(-1.0, 1.0), # Some vertical movement
-                    'length': random.uniform(10, 30),  # Short lines representing wind
-                    'opacity': random.uniform(0.2, 0.5),  # Subtle visibility
-                    'type': 'wind'
-                })
-
-        return particles
-    
-    def _update_overlay_particles(self, particles, animation_type):
-        """Update particle positions"""
-        import random
-
-        # Get screen dimensions dynamically
-        try:
-            from gi.repository import Gdk
-            display = Gdk.Display.get_default()
-            monitor = display.get_primary_monitor() if display.get_primary_monitor() else display.get_monitor(0)
-            geometry = monitor.get_geometry()
-            screen_width = geometry.width
-            screen_height = geometry.height
-        except:
-            # Fallback to common resolution
-            screen_width = 1920
-            screen_height = 1080
-
-        for particle in particles:
-            if animation_type == 'rain':
-                particle['y'] += particle['speed']
-                if particle['y'] > screen_height + 100:
-                    particle['y'] = random.uniform(-100, -50)
-                    particle['x'] = random.uniform(0, screen_width)
-            elif animation_type == 'snow':
-                particle['y'] += particle['speed']
-                # Add oscillation for more natural snow movement
-                particle['oscillation'] += particle['oscillation_speed']
-                particle['x'] += particle['drift'] + math.sin(particle['oscillation']) * 0.5  # Gentle side-to-side motion
-                if particle['y'] > screen_height + 100:
-                    particle['y'] = random.uniform(-100, -50)
-                    particle['x'] = random.uniform(0, screen_width)
-            elif animation_type == 'fog':
-                # Update fog particles with slow movement
-                particle['x'] += particle['speed_x']
-                particle['y'] += particle['speed_y']
-
-                # Wrap around screen edges
-                if particle['x'] > screen_width:
-                    particle['x'] = 0
-                elif particle['x'] < 0:
-                    particle['x'] = screen_width
-
-                if particle['y'] > screen_height:
-                    particle['y'] = 0
-                elif particle['y'] < 0:
-                    particle['y'] = screen_height
-
-                # Update drift for natural movement
-                particle['drift'] += particle['drift_speed']
-            elif animation_type in ['partly_cloudy', 'partly_cloudy_day', 'partly-cloudy-day', 'cloudy']:
-                # Update cloud particles for partly cloudy animation
-                if 'speed_x' in particle and particle.get('type') == 'cloud':
-                    particle['x'] += particle['speed_x']
-                    # Wrap around screen edges
-                    if particle['x'] > screen_width + 50:
-                        particle['x'] = -50
-                    elif particle['x'] < -50:
-                        particle['x'] = screen_width + 50
-            elif animation_type in ['partly_cloudy_night', 'partly-cloudy-night']:
-                # Update cloud particles for partly cloudy night
-                if 'speed_x' in particle and particle.get('type') == 'cloud':
-                    particle['x'] += particle['speed_x']
-                    # Wrap around screen edges
-                    if particle['x'] > screen_width + 50:
-                        particle['x'] = -50
-                    elif particle['x'] < -50:
-                        particle['x'] = screen_width + 50
-            elif animation_type == 'wind':
-                # Update wind particles
-                if particle.get('type') == 'wind':
-                    particle['x'] += particle['speed_x']
-                    particle['y'] += particle['speed_y']
-                    
-                    # Wrap around screen edges
-                    if particle['x'] > screen_width + 20:
-                        particle['x'] = -20
-                        particle['y'] = random.uniform(0, screen_height)
-                    elif particle['x'] < -20:
-                        particle['x'] = screen_width + 20
-                        particle['y'] = random.uniform(0, screen_height)
-                    
-                    # Reset Y if it goes too far off screen
-                    if particle['y'] > screen_height + 20:
-                        particle['y'] = -20
-                        particle['x'] = random.uniform(0, screen_width)
-                    elif particle['y'] < -20:
-                        particle['y'] = screen_height + 20
-                        particle['x'] = random.uniform(0, screen_width)
-            # For daytime animations (noon, morning, afternoon, day), particles are stationary with pulsing effects
-            # so no position updates are needed
-    
-    def _draw_overlay_animation(self, area, cr, width, height, data=None):
-        """Draw overlay animation"""
-        import math
-        import random
-
-        # Get window data
-        window = area.get_root()
-        if not hasattr(window, 'animation_type'):
-            return
-
-        animation_type = window.animation_type
-        particles = window.particles
-        animation_time = window.animation_time
-
-        # Semi-transparent background for better visibility against any wallpaper
-        cr.set_operator(cairo.OPERATOR_SOURCE)  # Changed from OPERATOR_CLEAR to SOURCE for better visibility
-        cr.set_source_rgba(0, 0, 0, 0.05)  # Very slightly transparent black for contrast
-        cr.paint()
-
-        # Draw effects based on actual weather conditions first, then fallback to time-based
-        if animation_type in ['clear-night', 'night']:
-            # Stars/sparkles with improved twinkling - increased visibility
-            for particle in particles:
-                # Use phase offset for varied twinkling
-                brightness = particle['brightness'] * (0.4 + 0.6 * abs(math.sin(animation_time * particle['twinkle_speed'] + particle['twinkle_phase'])))
-
-                # Consistent night stars regardless of specific type
-                cr.set_source_rgba(1.0, 1.0, 0.95, brightness * 0.9)  # More visible white night stars
-
-                # Draw star with glow effect
-                size = particle['size'] * 1.5  # Larger for better visibility
-                x, y = particle['x'], particle['y']
-
-                # Main star
-                cr.arc(x, y, size, 0, 2 * math.pi)
-                cr.fill()
-
-                # Enhanced glow for brighter stars
-                if brightness > 0.6:
-                    glow_alpha = brightness * 0.4
-                    cr.set_source_rgba(1.0, 1.0, 0.95, glow_alpha)
-                    cr.arc(x, y, size * 2.0, 0, 2 * math.pi)
-                    cr.fill()
-
-        elif animation_type in ['partly_cloudy', 'partly_cloudy_day', 'partly-cloudy-day']:
-            # Partly cloudy with sun rays - mix of clouds and sun effects
-            for particle in particles:
-                if particle.get('type') == 'cloud':
-                    # Draw cloud-like particles
-                    cr.set_source_rgba(0.8, 0.85, 0.9, particle['opacity'])
-                    # Draw fluffy cloud shape using multiple circles
-                    x, y = particle['x'], particle['y']
-                    size = particle['size']
-                    
-                    # Draw cloud as a cluster of circles
-                    for i in range(4):
-                        offset_x = (i - 1.5) * size * 0.4
-                        cr.arc(x + offset_x, y, size * 0.5, 0, 2 * math.pi)
-                        cr.fill()
-                        
-                    # Add subtle outline
-                    cr.set_source_rgba(0.7, 0.75, 0.85, particle['opacity'] * 0.6)
-                    cr.arc(x, y, size * 0.5, 0, 2 * math.pi)
-                    cr.stroke()
-                    
-                elif particle.get('type') == 'sun_ray':
-                    # Calculate pulsing effect for sun rays
-                    pulse = 0.5 + 0.5 * math.sin(animation_time * particle['pulse_speed'] + particle['pulse_phase'])
-                    opacity = particle['opacity'] * pulse
-                    
-                    # Draw sun rays emanating from center - more visible
-                    base_color = (1.0, 0.9, 0.6)  # Golden tone for partly cloudy
-                    cr.set_source_rgba(base_color[0], base_color[1], base_color[2], opacity * 0.5)
-                    cr.set_line_width(particle['thickness'] * 1.2)  # Thicker lines
-
-                    # Draw ray from center outward
-                    end_x = particle['x'] + math.cos(particle['angle']) * particle['length'] * pulse
-                    end_y = particle['y'] + math.sin(particle['angle']) * particle['length'] * pulse
-
-                    cr.move_to(particle['x'], particle['y'])
-                    cr.line_to(end_x, end_y)
-                    cr.stroke()
-        elif animation_type in ['partly_cloudy_night', 'partly-cloudy-night']:
-            # Partly cloudy at night - mix of clouds and stars
-            for particle in particles:
-                if particle.get('type') == 'cloud':
-                    # Draw cloud-like particles (darker for night)
-                    cr.set_source_rgba(0.3, 0.35, 0.45, particle['opacity'])
-                    # Draw fluffy cloud shape using multiple circles
-                    x, y = particle['x'], particle['y']
-                    size = particle['size']
-                    
-                    # Draw cloud as a cluster of circles
-                    for i in range(4):
-                        offset_x = (i - 1.5) * size * 0.4
-                        cr.arc(x + offset_x, y, size * 0.5, 0, 2 * math.pi)
-                        cr.fill()
-                        
-                elif particle.get('type') == 'star':
-                    # Use phase offset for varied twinkling
-                    brightness = particle['brightness'] * (0.4 + 0.6 * abs(math.sin(animation_time * particle['twinkle_speed'] + particle['twinkle_phase'])))
-
-                    # Night stars
-                    cr.set_source_rgba(1.0, 1.0, 0.95, brightness * 0.8)  # More visible white night stars
-
-                    # Draw star with glow effect
-                    size = particle['size'] * 1.3  # Larger for better visibility
-                    x, y = particle['x'], particle['y']
-
-                    # Main star
-                    cr.arc(x, y, size, 0, 2 * math.pi)
-                    cr.fill()
-
-                    # Enhanced glow for brighter stars
-                    if brightness > 0.6:
-                        glow_alpha = brightness * 0.3
-                        cr.set_source_rgba(1.0, 1.0, 0.95, glow_alpha)
-                        cr.arc(x, y, size * 1.8, 0, 2 * math.pi)
-                        cr.fill()
-        elif animation_type in ['cloudy', 'sunset', 'sunset_transition', 'dawn']:
-            # Atmospheric/sunset effects - colorful skies with subtle particles
-            for particle in particles:
-                # Calculate pulsing effect for atmospheric particles
-                pulse = 0.5 + 0.5 * math.sin(animation_time * particle['pulse_speed'] + particle['pulse_phase'])
-                opacity = particle['opacity'] * pulse
-
-                # Color varies based on time period for realistic atmospheric effects
-                if animation_type in ['sunset', 'sunset_transition']:
-                    # Sunset colors: oranges, reds, purples
-                    hue = random.choice([(1.0, 0.4, 0.2), (1.0, 0.6, 0.2), (0.9, 0.7, 0.3)])  # Red-orange-yellow
-                elif animation_type == 'dawn':
-                    # Dawn colors: soft pinks, oranges, yellows
-                    hue = random.choice([(1.0, 0.7, 0.5), (1.0, 0.8, 0.4), (0.9, 0.8, 0.6)])  # Pink-orange-yellow
-                elif animation_type in ['cloudy', 'partly-cloudy-day']:
-                    # Cloudy/day colors: soft blues, grays, whites
-                    hue = random.choice([(0.7, 0.8, 1.0), (0.8, 0.8, 0.9), (0.9, 0.9, 1.0)])  # Soft blues/grays
-                else:
-                    # Fallback to sunset colors
-                    hue = (1.0, 0.6, 0.3)
-
-                if particle['ray_type'] == 'ray':
-                    # Draw atmospheric rays - softer and more colorful
-                    cr.set_source_rgba(hue[0], hue[1], hue[2], opacity * 0.4)
-                    cr.set_line_width(particle['thickness'] * 1.0)
-
-                    # Draw ray from center outward
-                    end_x = particle['x'] + math.cos(particle['angle']) * particle['length'] * pulse
-                    end_y = particle['y'] + math.sin(particle['angle']) * particle['length'] * pulse
-
-                    cr.move_to(particle['x'], particle['y'])
-                    cr.line_to(end_x, end_y)
-                    cr.stroke()
-                elif particle['ray_type'] == 'glow':
-                    # Draw atmospheric glow - soft and colorful
-                    cr.set_source_rgba(hue[0], hue[1], hue[2], opacity * 0.3)
-                    radius = 35 * pulse
-                    cr.arc(particle['x'], particle['y'], radius, 0, 2 * math.pi)
-                    cr.fill()
-                elif particle['ray_type'] == 'atmosphere':
-                    # Draw atmospheric haze/particles - soft and diffused
-                    cr.set_source_rgba(hue[0], hue[1], hue[2], opacity * 0.2)
-                    # Draw as a soft ellipse for atmospheric effect
-                    cr.save()
-                    cr.translate(particle['x'], particle['y'])
-                    cr.scale(1.5, 0.8)  # Elliptical shape for atmospheric effect
-                    cr.arc(0, 0, 20 * pulse, 0, 2 * math.pi)
-                    cr.fill()
-                    cr.restore()
-
-        elif animation_type in ['clear-day', 'sunny', 'noon', 'morning', 'afternoon', 'day']:
-            # Sun rays or light particles for daytime - with distinct characteristics
-            for particle in particles:
-                # Calculate pulsing effect
-                pulse = 0.5 + 0.5 * math.sin(animation_time * particle['pulse_speed'] + particle['pulse_phase'])
-                opacity = particle['opacity'] * pulse
-
-                # Adjust appearance based on specific time period
-                if animation_type == 'noon':
-                    # Noon: More intense, direct sunlight
-                    base_color = (1.0, 0.95, 0.7)  # Brighter yellow
-                    intensity_factor = 1.2
-                elif animation_type == 'morning':
-                    # Morning: Softer, warmer tones
-                    base_color = (1.0, 0.85, 0.6)  # Warmer, softer
-                    intensity_factor = 1.0
-                elif animation_type in ['afternoon', 'clear-day', 'sunny', 'day']:
-                    # Afternoon/clear day: Golden, warm but not as intense as noon
-                    base_color = (1.0, 0.88, 0.65)  # Golden tone
-                    intensity_factor = 1.1
-                else:  # day (fallback)
-                    base_color = (1.0, 0.9, 0.7)
-                    intensity_factor = 1.0
-
-                if particle['ray_type'] == 'ray':
-                    # Draw sun rays emanating from center - more visible
-                    cr.set_source_rgba(base_color[0], base_color[1], base_color[2], opacity * 0.6 * intensity_factor)
-                    cr.set_line_width(particle['thickness'] * 1.5 * intensity_factor)  # Thicker lines
-
-                    # Draw ray from center outward
-                    end_x = particle['x'] + math.cos(particle['angle']) * particle['length'] * pulse
-                    end_y = particle['y'] + math.sin(particle['angle']) * particle['length'] * pulse
-
-                    cr.move_to(particle['x'], particle['y'])
-                    cr.line_to(end_x, end_y)
-                    cr.stroke()
-
-                elif particle['ray_type'] == 'glow':
-                    # Draw circular glow effect - more visible
-                    cr.set_source_rgba(base_color[0], base_color[1], base_color[2]*0.9, opacity * 0.4 * intensity_factor)
-                    radius = 35 * pulse * intensity_factor
-                    cr.arc(particle['x'], particle['y'], radius, 0, 2 * math.pi)
-                    cr.fill()
-
-                elif particle['ray_type'] == 'beam':
-                    # Draw vertical light beam - more visible
-                    cr.set_source_rgba(base_color[0], base_color[1]*0.95, base_color[2]*0.9, opacity * 0.5 * intensity_factor)
-                    x = particle['x']
-                    y_top = particle['y']
-                    y_bottom = y_top + particle['length']
-
-                    # Create gradient for beam
-                    gradient = cairo.LinearGradient(x, y_top, x, y_bottom)
-                    gradient.add_color_stop_rgba(0, base_color[0], base_color[1]*0.95, base_color[2]*0.9, opacity * 0.7 * intensity_factor)
-                    gradient.add_color_stop_rgba(1, base_color[0], base_color[1]*0.95, base_color[2]*0.9, 0)
-                    cr.set_source(gradient)
-
-                    # Draw beam as rectangle - wider for visibility
-                    width_factor = 7 * intensity_factor
-                    cr.rectangle(x - width_factor, y_top, width_factor * 2, particle['length'])
-                    cr.fill()
-
-        elif animation_type == 'rain':
-            # Enhanced rain with variable thickness - more visible
-            for particle in particles:
-                # Calculate brightness based on length
-                alpha = 0.8 * (particle['length'] / 35.0)  # Higher base alpha
-                cr.set_source_rgba(0.4, 0.6, 0.9, alpha)  # More vibrant blue-gray for rain
-                cr.set_line_width(particle['thickness'] * 1.5)  # Thicker lines
-                cr.move_to(particle['x'], particle['y'])
-                cr.line_to(particle['x'] + 2, particle['y'] + particle['length'])  # Longer lines
-                cr.stroke()
-
-        elif animation_type == 'snow':
-            # Enhanced snow with oscillation effect - more visible
-            for particle in particles:
-                # Calculate opacity based on size
-                alpha = 0.8 + (particle['size'] / 9.0) * 0.2  # Higher base alpha
-                cr.set_source_rgba(0.95, 1.0, 1.0, alpha)  # Slightly bluish-white
-
-                # Add gentle oscillation to position
-                oscillation_offset = math.sin(particle['oscillation']) * 3
-                x_pos = particle['x'] + oscillation_offset
-
-                # Draw snowflake - larger for better visibility
-                size = particle['size'] * 1.3
-                cr.arc(x_pos, particle['y'], size, 0, 2 * math.pi)
-                cr.fill()
-
-                # Add subtle highlight for better visibility
-                cr.set_source_rgba(1.0, 1.0, 1.0, alpha * 0.6)
-                cr.arc(x_pos - 0.5, particle['y'] - 0.5, size * 0.7, 0, 2 * math.pi)
-                cr.fill()
-
-        elif animation_type == 'fog':
-            # Draw fog/mist particles - soft and translucent
-            for particle in particles:
-                # Soft gray/white fog particles
-                alpha = particle['opacity']
-                cr.set_source_rgba(0.9, 0.92, 0.95, alpha)  # Light grayish-white
-
-                # Draw as soft circles for fog effect
-                size = particle['size']
-                x, y = particle['x'], particle['y']
-
-                # Draw soft fog cloud
-                cr.arc(x, y, size, 0, 2 * math.pi)
-                cr.fill()
-
-                # Add subtle glow for mist effect
-                cr.set_source_rgba(0.95, 0.97, 1.0, alpha * 0.3)
-                cr.arc(x, y, size * 1.5, 0, 2 * math.pi)
-                cr.fill()
-
-        elif animation_type == 'wind':
-            # Draw wind particles - represented as short lines indicating air movement
-            for particle in particles:
-                if particle.get('type') == 'wind':
-                    # Draw wind direction indicators
-                    alpha = particle['opacity']
-                    cr.set_source_rgba(0.7, 0.8, 0.9, alpha)  # Light blue-gray for wind
-                    cr.set_line_width(1.5)
-                    
-                    # Draw short lines in direction of wind
-                    x, y = particle['x'], particle['y']
-                    end_x = x + particle['length'] * 0.7
-                    end_y = y + particle['speed_y'] * 0.5  # Include vertical component
-                    
-                    cr.move_to(x, y)
-                    cr.line_to(end_x, end_y)
-                    cr.stroke()
-                    
-                    # Add arrowhead to indicate direction
-                    cr.move_to(end_x, end_y)
-                    cr.line_to(end_x - 4, end_y - 2)
-                    cr.move_to(end_x, end_y)
-                    cr.line_to(end_x - 4, end_y + 2)
-                    cr.stroke()
-
-        # Ensure the drawing is properly flushed
-        cr.stroke_preserve()
 
 class WeatherWidget(Gtk.Box):
     """Weather widget for toolbar showing current conditions and recommendations"""
@@ -2247,36 +787,18 @@ class WeatherWidget(Gtk.Box):
         pass
     
     def on_animation_clicked(self, button):
-        """Handle animation button click - show weather overlay"""
+        """Handle animation button click - toggle weather animation"""
         print("🎮 Weather animation play button clicked!")
-
-        # Get weather info before triggering animation
-        weather_info = self.weather_sync.get_weather_description()
-        print(f"🎮 Current weather condition: {weather_info['condition']}")
-        print(f"🎮 Current time period: {weather_info['time_period']}")
-        print(f"🎮 Recommended keywords: {weather_info['recommended_keywords']}")
-        print(f"🎮 Full weather info: {weather_info}")
-
-        # Call the main app's animation function if we have a reference to main window
-        if self.main_window:
-            print("🎮 Main window reference available, calling show_weather_overlay...")
-            try:
-                self.animation_overlay.show_weather_overlay(self.main_window, duration=15)
-                print(f"🎮 Weather animation triggered from WeatherWidget for {weather_info['time_period']} at {time.strftime('%H:%M:%S')}")
-            except Exception as e:
-                print(f"🎮 Error showing weather overlay: {e}")
-                import traceback
-                traceback.print_exc()
+        
+        if self.main_window and hasattr(self.main_window, 'on_weather_animation_clicked'):
+            # Use the main app's proper toggle method
+            self.main_window.on_weather_animation_clicked(button)
         else:
-            print("🎮 No main window reference available, using fallback")
-            # Fallback: try to call without main window (may not work properly in all cases)
-            try:
-                self.animation_overlay.show_weather_overlay(None, duration=15)
-                print(f"🎮 Weather animation triggered with fallback method for {weather_info['time_period']} at {time.strftime('%H:%M:%S')}")
-            except Exception as e:
-                print(f"🎮 Error showing weather overlay with fallback: {e}")
-                import traceback
-                traceback.print_exc()
+            # Fallback: toggle directly
+            if self.animation_overlay.current_animation_type is not None:
+                self.animation_overlay.stop_animation()
+            else:
+                self.animation_overlay.start_animation()
 
 class PhotoEffects:
     """Photo effects and filters processor"""
@@ -4226,7 +2748,7 @@ class WallpaperApp(Gtk.ApplicationWindow):
         content_box.set_margin_end(1)
         main_box.append(content_box)
         
-        # Create wallpaper grid
+        # Create wallpaper grid (no in-app overlay - weather now renders on desktop)
         self.grid_view = WallpaperGridView(self)
         content_box.append(self.grid_view)
         
@@ -4942,11 +3464,15 @@ class WallpaperApp(Gtk.ApplicationWindow):
         print(f"DEBUG: Current time period: {weather_info['time_period']}")
         print(f"DEBUG: Recommended keywords: {weather_info['recommended_keywords']}")
         
-        # Show animated weather overlay regardless of wallpaper
-        self.weather_animation.show_weather_overlay(self, duration=15)
-
-        # Update status
-        self.update_status(f"🎆 Showing {weather_info['time_period']} animation overlay for 15s (Press ESC to close)")
+        # Toggle the weather animation on/off
+        if self.weather_animation.current_animation_type is not None:
+            # Animation running - stop it
+            self.weather_animation.stop_animation()
+            self.update_status("🎆 Weather animation stopped")
+        else:
+            # Start animation (drawing area is always visible but only draws when animating)
+            self.weather_animation.start_animation()
+            self.update_status(f"🎆 Showing {weather_info['time_period']} animation overlay (Press play button to stop)")
         
         # Log for debugging
         print(f"DEBUG: Weather animation triggered for {weather_info['time_period']} at {time.strftime('%H:%M:%S')}")
