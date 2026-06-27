@@ -30,6 +30,116 @@ import cairo
 # Wall-IT Version
 __version__ = "2.1.0"
 
+# Application ID used by GTK/Wayland. The dock matches windows to .desktop files
+# via this app_id, so the icon and .desktop file must be installed under it.
+WALLIT_APP_ID = "com.wallit.app"
+
+
+def _draw_disco_ball(size):
+    """Draw a disco-ball icon onto a new transparent cairo ImageSurface."""
+    import math as _math
+    surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, size, size)
+    ctx = cairo.Context(surf)
+    ctx.set_source_rgba(0, 0, 0, 0)
+    ctx.paint()
+
+    cx = cy = size / 2.0
+    R = size * 0.44
+
+    ctx.save()
+    ctx.arc(cx, cy, R, 0, 2 * _math.pi)
+    ctx.clip()
+    grad = cairo.RadialGradient(cx - R * 0.4, cy - R * 0.4, R * 0.1, cx, cy, R * 1.05)
+    grad.add_color_stop_rgba(0.15, 0.92, 0.95, 1.00, 1.0)
+    grad.add_color_stop_rgba(0.55, 0.40, 0.46, 0.92, 1.0)
+    grad.add_color_stop_rgba(1.00, 0.08, 0.10, 0.28, 1.0)
+    ctx.set_source(grad)
+    ctx.rectangle(0, 0, size, size)
+    ctx.fill()
+
+    n = 7
+    step = (2 * R) / n
+    tile = step * 0.82
+
+    def hsh(i, j):
+        x = _math.sin((i + 1) * 12.9898 + (j + 1) * 78.233) * 43758.5453
+        return x - _math.floor(x)
+
+    for j in range(n):
+        for i in range(n):
+            tx = cx - R + (i + 0.5) * step
+            ty = cy - R + (j + 0.5) * step
+            dx, dy = tx - cx, ty - cy
+            if dx * dx + dy * dy > R * R:
+                continue
+            lz = max(0.0, 1.0 - _math.hypot(dx, dy) / R)
+            light = 0.35 + 0.65 * max(0.0, (-dx - dy) / (R * 1.7))
+            shimmer = 0.7 + 0.3 * hsh(i, j)
+            b = max(0.0, min(1.0, light * shimmer + lz * 0.25))
+            r = min(1.0, 0.55 * b + 0.30 * (b * b))
+            g = min(1.0, 0.62 * b + 0.34 * (b * b))
+            bl = min(1.0, 0.95 * b + 0.30 * (b * b))
+            ctx.set_source_rgba(r, g, bl, 0.55 + 0.4 * b)
+            ctx.rectangle(tx - tile / 2, ty - tile / 2, tile, tile)
+            ctx.fill()
+    ctx.restore()
+
+    ctx.set_source_rgba(0.03, 0.04, 0.10, 0.85)
+    ctx.set_line_width(max(1.0, size / 48.0))
+    ctx.arc(cx, cy, R, 0, 2 * _math.pi)
+    ctx.stroke()
+
+    sp, sq, sr = cx - R * 0.38, cy - R * 0.38, R * 0.16
+    sgrad = cairo.RadialGradient(sp, sq, 0, sp, sq, sr)
+    sgrad.add_color_stop_rgba(0, 1, 1, 1, 0.95)
+    sgrad.add_color_stop_rgba(1, 1, 1, 1, 0)
+    ctx.set_source(sgrad)
+    ctx.arc(sp, sq, sr, 0, 2 * _math.pi)
+    ctx.fill()
+    return surf
+
+
+def ensure_app_icon():
+    """Generate and install a real PNG icon for the dock/window.
+
+    On Wayland, docks (waybar taskbar, nwg-dock, etc.) match windows to .desktop
+    files via the app_id (here 'com.wallit.app'). GTK4 also uses the app_id to
+    look up the window icon in the icon theme. Without a proper PNG installed
+    under that name, the dock shows a generic/broken 'weird symbol'. This
+    generates a disco-ball PNG and installs it under both the app_id and 'wall-it'
+    so the window icon, dock, and .desktop file all resolve to the same image.
+    Cached; regenerated only when missing or when WALLIT_REGEN_APP_ICON=1."""
+    hicolor = Path.home() / ".local" / "share" / "icons" / "hicolor"
+    sizes = [16, 22, 24, 32, 48, 64, 128, 256]
+    names = [WALLIT_APP_ID, "wall-it"]
+
+    # Fast path: all sizes present for the app_id name?
+    check = hicolor / "48x48" / "apps" / f"{WALLIT_APP_ID}.png"
+    if check.exists() and os.environ.get("WALLIT_REGEN_APP_ICON") != "1":
+        return
+
+    try:
+        for name in names:
+            for s in sizes:
+                d = hicolor / f"{s}x{s}" / "apps"
+                d.mkdir(parents=True, exist_ok=True)
+                _draw_disco_ball(s).write_to_png(str(d / f"{name}.png"))
+        # Also cache a master copy.
+        cache_dir = Path.home() / ".cache" / "wall-it" / "icons"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        _draw_disco_ball(64).write_to_png(str(cache_dir / "wall-it.png"))
+        # Refresh icon cache (best-effort).
+        try:
+            subprocess.run(
+                ["gtk-update-icon-cache", "-f", "-t", str(hicolor)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10,
+            )
+        except Exception:
+            pass
+        print(f"✅ Generated Wall-IT app icon ({WALLIT_APP_ID})")
+    except Exception as exc:
+        print(f"⚠️ Could not generate app icon: {exc}")
+
 # System tray support - Using separate process to avoid GTK3/GTK4 conflicts
 import subprocess
 import threading
@@ -483,13 +593,64 @@ class WeatherSync:
         self._cached_weather = None
         self._cache_time = 0
         self._cache_ttl = 600  # Refresh weather every 10 minutes
-        
+
+    @staticmethod
+    def _parse_hhmm(value):
+        """Parse wttr.in astronomy times ('07:01 AM', '04:55 PM', '16:55')
+        into minutes since midnight. Returns None on failure."""
+        import re
+        try:
+            m = re.match(r'\s*(\d{1,2}):(\d{2})\s*(AM|PM)?', str(value).upper())
+            if not m:
+                return None
+            h, mm, ap = int(m.group(1)), int(m.group(2)), m.group(3)
+            if ap == 'PM' and h != 12:
+                h += 12
+            elif ap == 'AM' and h == 12:
+                h = 0
+            return h * 60 + mm
+        except Exception:
+            return None
+
     def get_current_time_period(self):
-        """Get current time period for wallpaper selection"""
+        """Get current time period using REAL sunrise/sunset from wttr.in
+        astronomy data when available, falling back to local-hour estimates.
+
+        Previously this used hardcoded hour windows (e.g. 18:00-20:00 = sunset)
+        that did not match the actual sunset time for the user's location/season,
+        so the GUI showed 'Sunset' well after dark (or vice versa)."""
         import datetime
-        current_time = datetime.datetime.now()
-        hour = current_time.hour
-        
+        now = datetime.datetime.now()
+        now_min = now.hour * 60 + now.minute
+
+        sunrise_min = sunset_min = None
+        astro = self._cached_weather.get('astronomy') if self._cached_weather else None
+        if astro:
+            sunrise_min = self._parse_hhmm(astro.get('sunrise'))
+            sunset_min = self._parse_hhmm(astro.get('sunset'))
+
+        if sunrise_min is not None and sunset_min is not None:
+            twilight = 60  # minutes either side of sunrise/sunset
+            dawn_start, dawn_end = sunrise_min - twilight, sunrise_min + twilight
+            dusk_start, dusk_end = sunset_min - twilight, sunset_min + twilight
+            noon_min = (sunrise_min + sunset_min) // 2  # approximate solar noon
+            # Order matters: night spans the wrap-around (after dusk_end OR before dawn_start)
+            if dusk_end <= now_min or now_min < dawn_start:
+                return 'night'
+            if dusk_start <= now_min < dusk_end:
+                return 'sunset'
+            if dusk_start - 90 <= now_min < dusk_start:
+                return 'sunset_transition'
+            if dawn_start <= now_min < dawn_end:
+                return 'dawn'
+            if dawn_end <= now_min < noon_min - 60:
+                return 'morning'
+            if noon_min - 60 <= now_min < noon_min + 60:
+                return 'noon'
+            return 'afternoon'
+
+        # Fallback: no astronomy data available, estimate from the local hour.
+        hour = now.hour
         if 5 <= hour < 7:
             return 'dawn'
         elif 7 <= hour < 11:
@@ -522,6 +683,10 @@ class WeatherSync:
             feels_like = current.get('FeelsLikeC', '?')
             humidity = current.get('humidity', '?')
             wind_speed = current.get('windspeedKmph', '?')
+            # Capture sunrise/sunset so get_current_time_period() can use the
+            # REAL sun position instead of hardcoded hour windows.
+            astronomy = data.get('weather', [{}])[0].get('astronomy', [{}])
+            astronomy = astronomy[0] if astronomy else {}
             
             print(f"🌤️ Real weather: {weather_desc}, {temp_c}°C (feels {feels_like}°C)")
             
@@ -531,6 +696,7 @@ class WeatherSync:
                 'feels_like': feels_like,
                 'humidity': humidity,
                 'wind_speed': wind_speed,
+                'astronomy': astronomy,
             }
         except Exception as e:
             print(f"⚠️ Weather fetch failed: {e}")
@@ -539,13 +705,13 @@ class WeatherSync:
     def get_weather_description(self):
         """Get current weather description using real data if available."""
         import time as _time
-        time_period = self.get_current_time_period()
-        
-        # Try to fetch real weather (cached for 10 min)
+        # Fetch (cached) weather FIRST so that get_current_time_period() can use
+        # the real sunrise/sunset astronomy data on this same call.
         now = _time.time()
         if now - self._cache_time > self._cache_ttl:
             self._cached_weather = self._fetch_real_weather()
             self._cache_time = now
+        time_period = self.get_current_time_period()
         
         # Determine condition from real weather or fallback
         condition = None
@@ -3189,85 +3355,121 @@ class WallpaperApp(Gtk.ApplicationWindow):
             print(f"Error updating status: {e}")
     
     def apply_css_styling(self):
-        """Apply CSS styling with drag&drop visual feedback"""
+        """Apply CSS styling with smooth hover transitions and drag/drop"""
         css = """
         .toolbar {
             background: rgba(255, 255, 255, 0.1);
             border-radius: 4px;
             padding: 2px;
         }
-        
+
         .toolbar box {
             padding: 1px;
             margin: 1px;
         }
-        
+
         .toolbar separator {
             margin: 2px 4px;
             opacity: 0.2;
         }
-        
-        /* Override default button height */
+
+        /* Smooth transitions on all toolbar buttons */
         .toolbar button {
             min-height: 24px;
             min-width: 24px;
             padding: 2px;
             margin: 1px;
+            border-radius: 6px;
+            transition:
+                background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+                box-shadow      0.2s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        
+
+        .toolbar button:hover {
+            background-color: rgba(255, 255, 255, 0.15);
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+        }
+
+        .toolbar button:active {
+            background-color: rgba(255, 255, 255, 0.22);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35) inset;
+            transition-duration: 0.06s;
+        }
+
         .toolbar dropdown {
             min-height: 24px;
             margin: 1px;
         }
-        
+
         .toolbar dropdown > button {
             min-height: 24px;
             padding: 1px 4px;
+            border-radius: 6px;
+            transition:
+                background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+                box-shadow      0.2s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        
+
+        .toolbar dropdown > button:hover {
+            background-color: rgba(255, 255, 255, 0.15);
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+        }
+
         .toolbar > box > box {
             background: rgba(255, 255, 255, 0.05);
             border-radius: 3px;
             margin: 1px;
         }
-        
+
         .status-bar {
             padding: 8px;
             background: rgba(0, 0, 0, 0.1);
             border-radius: 0 0 8px 8px;
+            transition: background-color 0.3s ease;
         }
-        
+
         .drop-hover {
             background: rgba(99, 102, 241, 0.2);
             border: 2px dashed rgba(99, 102, 241, 0.5);
             border-radius: 8px;
         }
-        
+
         .high-res-indicator {
             font-size: 10px;
             color: #10b981;
             font-weight: bold;
         }
-        
+
         button {
             min-height: 32px;
+            border-radius: 8px;
+            transition:
+                background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                box-shadow      0.25s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        
+
+        button:hover {
+            background-color: rgba(255, 255, 255, 0.09);
+        }
+
         switch {
             min-height: 24px;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        
-        /* Compact switches - much shorter height with extended dark background like reference image */
+
+        /* Compact switches */
         .compact-switch {
             min-height: 8px;
             max-height: 8px;
-            min-width: 32px;  /* Wider for better proportion */
+            min-width: 32px;
             margin: 1px;
-            padding: 2px;     /* Add padding for extended background */
-            background: rgba(0, 0, 0, 0.4);  /* Dark background like reference */
-            border-radius: 8px;  /* Extended rounded background */
+            padding: 2px;
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 8px;
+            transition:
+                background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        
+
         .compact-switch > slider {
             min-height: 6px;
             max-height: 6px;
@@ -3278,47 +3480,55 @@ class WallpaperApp(Gtk.ApplicationWindow):
             background: #ffffff;
             border: none;
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+            transition:
+                background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        
+
         .compact-switch > trough {
             min-height: 8px;
             max-height: 8px;
-            min-width: 28px;  /* Proportional to switch width */
+            min-width: 28px;
             border-radius: 6px;
-            background: rgba(60, 60, 60, 0.8);  /* Darker trough like reference */
+            background: rgba(60, 60, 60, 0.8);
             border: 1px solid rgba(40, 40, 40, 0.9);
+            transition:
+                background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                border-color    0.25s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        
+
         .compact-switch:checked > trough {
-            background: #ffffff;  /* White inner background when selected/enabled */
+            background: #ffffff;
             border: 1px solid rgba(200, 200, 200, 0.8);
         }
-        
+
         .compact-switch:checked > slider {
-            background: rgba(99, 102, 241, 0.9);  /* Blue slider when active */
+            background: rgba(99, 102, 241, 0.9);
             border: none;
         }
-        
-        /* Prevent dropdown expansion issues */
+
         dropdown {
             max-width: 200px;
+            transition: opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        
+
         dropdown > button {
             max-width: 200px;
             text-overflow: ellipsis;
         }
+
+        window {
+            transition: opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        }
         """
-        
+
         css_provider = Gtk.CssProvider()
         css_provider.load_from_data(css.encode())
-        
+
         display = Gdk.Display.get_default()
         Gtk.StyleContext.add_provider_for_display(
-            display, css_provider, 
+            display, css_provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
-    
     def setup_keyboard_shortcuts(self):
         """Setup keyboard shortcuts"""
         key_controller = Gtk.EventControllerKey()
@@ -4201,6 +4411,9 @@ def main():
     if handle_command_line_args(sys.argv):
         return 0
     
+    # Ensure the dock/window icon exists before the window appears.
+    ensure_app_icon()
+
     print("🖼️ Starting Wall-IT...")
     print("✅ Features: System tray, Monitor scaling, Timer, Photo effects, Web interface")
     app = WallpaperApplication()

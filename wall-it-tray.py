@@ -7,6 +7,7 @@ but will still enable IPC communication for tray functionality.
 
 import os
 import sys
+import math
 import signal
 import subprocess
 import time
@@ -52,7 +53,15 @@ class WallItTray:
     def __init__(self):
         self.indicator = None
         self.main_loop = None
-        
+
+        # Generate/install a real PNG tray icon up front. The tray host (e.g.
+        # waybar on wlroots) rasterizes themed *SVG* icons itself and, via
+        # AppIndicator3's IconPixmap path, that frequently renders as a mosaic of
+        # coloured squares. A proper PNG handed over as an absolute file path is
+        # loaded directly by the host and displays correctly.
+        self.icon_name = "wall-it"
+        self.icon_path = self._ensure_tray_icon()
+
         if IS_WAYLAND and not WAYLAND_TRAY_SUPPORTED:
             # On Wayland with compositors that don't support system trays (like Niri)
             print("⚠️ On Wayland without tray support (Niri), system tray may not be visible")
@@ -95,6 +104,119 @@ class WallItTray:
             self._create_status_icon_fallback()
             return
     
+    def _ensure_tray_icon(self):
+        """Generate and install a real PNG tray icon, returning its path.
+
+        With AppIndicator3 + a wlroots tray host (waybar), themed SVG icons get
+        rasterized and shipped as IconPixmap bytes that render as coloured
+        squares. Installing a PNG and giving the indicator an absolute file path
+        (set_icon_full) makes the host load the PNG directly, which displays
+        correctly. The PNG is cached and also installed into the hicolor icon
+        theme so it resolves by name ('wall-it')."""
+        try:
+            import cairo
+        except Exception as exc:
+            print(f"⚠️ cairo not available for tray icon: {exc}")
+            return None
+
+        cache_icon = Path.home() / ".cache" / "wall-it" / "icons" / "wall-it.png"
+        # Regenerate only when missing or when explicitly requested.
+        if cache_icon.exists() and os.environ.get("WALLIT_REGEN_TRAY_ICON") != "1":
+            return str(cache_icon)
+
+        sizes = [16, 22, 24, 32, 48, 64, 128, 256]
+        try:
+            cache_icon.parent.mkdir(parents=True, exist_ok=True)
+            # Master icon used directly by the tray via set_icon_full().
+            self._draw_disco_ball(cairo, 64).write_to_png(str(cache_icon))
+            # Install into the user's hicolor theme so it also resolves by name.
+            hicolor = Path.home() / ".local" / "share" / "icons" / "hicolor"
+            for s in sizes:
+                d = hicolor / f"{s}x{s}" / "apps"
+                d.mkdir(parents=True, exist_ok=True)
+                self._draw_disco_ball(cairo, s).write_to_png(str(d / "wall-it.png"))
+            # Refresh the icon cache (best-effort).
+            try:
+                subprocess.run(
+                    ["gtk-update-icon-cache", "-f", "-t", str(hicolor)],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10,
+                )
+            except Exception:
+                pass
+            print(f"✅ Generated Wall-IT tray icon -> {cache_icon}")
+            return str(cache_icon)
+        except Exception as exc:
+            print(f"⚠️ Failed to generate tray icon: {exc}")
+            return None
+
+    @staticmethod
+    def _draw_disco_ball(cairo, size):
+        """Draw a disco-ball icon onto a new transparent cairo ImageSurface."""
+        surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, size, size)
+        ctx = cairo.Context(surf)
+        ctx.set_source_rgba(0, 0, 0, 0)
+        ctx.paint()
+
+        cx = cy = size / 2.0
+        R = size * 0.44
+
+        # Sphere body with radial shading (lit from the upper-left).
+        ctx.save()
+        ctx.arc(cx, cy, R, 0, 2 * math.pi)
+        ctx.clip()
+        grad = cairo.RadialGradient(cx - R * 0.4, cy - R * 0.4, R * 0.1, cx, cy, R * 1.05)
+        grad.add_color_stop_rgba(0.15, 0.92, 0.95, 1.00, 1.0)
+        grad.add_color_stop_rgba(0.55, 0.40, 0.46, 0.92, 1.0)
+        grad.add_color_stop_rgba(1.00, 0.08, 0.10, 0.28, 1.0)
+        ctx.set_source(grad)
+        ctx.rectangle(0, 0, size, size)
+        ctx.fill()
+
+        # Mirror tiles: a grid of small squares with a per-tile shimmer.
+        n = 7  # tiles across the diameter
+        step = (2 * R) / n
+        tile = step * 0.82
+
+        def hsh(i, j):
+            x = math.sin((i + 1) * 12.9898 + (j + 1) * 78.233) * 43758.5453
+            return x - math.floor(x)
+
+        for j in range(n):
+            for i in range(n):
+                tx = cx - R + (i + 0.5) * step
+                ty = cy - R + (j + 0.5) * step
+                dx, dy = tx - cx, ty - cy
+                if dx * dx + dy * dy > R * R:
+                    continue
+                lz = max(0.0, 1.0 - math.hypot(dx, dy) / R)
+                light = 0.35 + 0.65 * max(0.0, (-dx - dy) / (R * 1.7))
+                shimmer = 0.7 + 0.3 * hsh(i, j)
+                b = max(0.0, min(1.0, light * shimmer + lz * 0.25))
+                r = min(1.0, 0.55 * b + 0.30 * (b * b))
+                g = min(1.0, 0.62 * b + 0.34 * (b * b))
+                bl = min(1.0, 0.95 * b + 0.30 * (b * b))
+                ctx.set_source_rgba(r, g, bl, 0.55 + 0.4 * b)
+                ctx.rectangle(tx - tile / 2, ty - tile / 2, tile, tile)
+                ctx.fill()
+        ctx.restore()
+
+        # Subtle outline so it reads on both light and dark bars.
+        ctx.set_source_rgba(0.03, 0.04, 0.10, 0.85)
+        ctx.set_line_width(max(1.0, size / 48.0))
+        ctx.arc(cx, cy, R, 0, 2 * math.pi)
+        ctx.stroke()
+
+        # Specular highlight (upper-left).
+        sp, sq, sr = cx - R * 0.38, cy - R * 0.38, R * 0.16
+        sgrad = cairo.RadialGradient(sp, sq, 0, sp, sq, sr)
+        sgrad.add_color_stop_rgba(0, 1, 1, 1, 0.95)
+        sgrad.add_color_stop_rgba(1, 1, 1, 1, 0)
+        ctx.set_source(sgrad)
+        ctx.arc(sp, sq, sr, 0, 2 * math.pi)
+        ctx.fill()
+
+        return surf
+
     def _create_minimal_wayland_support(self):
         """Create minimal support for Wayland environments where tray icons don't work"""
         print("🔧 Setting up IPC communication for Wayland environment")
@@ -103,9 +225,11 @@ class WallItTray:
         try:
             self.indicator = AppIndicator3.Indicator.new(
                 "wall-it",
-                "image-x-generic",  # Minimal icon
+                self.icon_name,
                 AppIndicator3.IndicatorCategory.APPLICATION_STATUS
             )
+            if self.icon_path:
+                self.indicator.set_icon_full(self.icon_path, "Wall-IT")
             self.indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
             self.indicator.set_title("🪩 Wall-IT")
             
@@ -183,7 +307,10 @@ class WallItTray:
         
         # Create status icon as fallback
         self.status_icon = Gtk.StatusIcon()
-        self.status_icon.set_from_icon_name("preferences-desktop-wallpaper")
+        if self.icon_path:
+            self.status_icon.set_from_file(self.icon_path)
+        else:
+            self.status_icon.set_from_icon_name("preferences-desktop-wallpaper")
         self.status_icon.set_tooltip_text("🪩 Wall-IT - Wallpaper Manager")
         self.status_icon.set_visible(True)
         
@@ -246,6 +373,7 @@ class WallItTray:
         """Create indicator with fallback icons to avoid purple/black squares"""
         # Try multiple fallback icons in order of preference
         fallback_icons = [
+            self.icon_name,                   # Our generated PNG (resolves by name)
             "preferences-desktop-wallpaper",  # Standard wallpaper icon
             "applications-graphics",          # Graphics applications icon
             "image-x-generic",               # Generic image icon
@@ -261,6 +389,8 @@ class WallItTray:
                     icon_name,
                     AppIndicator3.IndicatorCategory.APPLICATION_STATUS
                 )
+                if self.icon_path:
+                    self.indicator.set_icon_full(self.icon_path, "Wall-IT")
                 self.indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
                 print(f"✅ Using fallback icon: {icon_name}")
                 # If we reach here, icon creation was successful
@@ -290,6 +420,8 @@ class WallItTray:
             print("⚠️ Using default system indicator")
         
         self.indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
+        if self.icon_path:
+            self.indicator.set_icon_full(self.icon_path, "Wall-IT")
         self.indicator.set_title("🪩 Wall-IT")  # Disco ball emoji in title
         
         # Create menu
