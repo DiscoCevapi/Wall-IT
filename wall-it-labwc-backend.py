@@ -5,11 +5,22 @@ Provides Labwc-specific functionality for wallpaper management
 Compatible with various shell setups (waybar, noctalia-shell, etc.)
 """
 
+import os
 import subprocess
 import json
 import sys
+import importlib.util
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
+
+# Import configuration
+try:
+    import wall_it_config as _config
+except ImportError:
+    _config_path = Path(__file__).parent / "wall-it-config.py"
+    _spec = importlib.util.spec_from_file_location("wall_it_config", _config_path)
+    _config = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(_config)
 
 
 class LabwcBackend:
@@ -18,26 +29,26 @@ class LabwcBackend:
     def __init__(self):
         self.name = "Labwc"
         self.verify_tools()
-        self.swww_available = self._check_swww_daemon()
-    
+        self.awww_available = self._check_awww_daemon()
+
     def verify_tools(self):
         """Verify that required Labwc tools are available"""
-        required_tools = ['swww']  # We'll use swww for wallpaper management
+        required_tools = ['awww']  # We'll use awww for wallpaper management
         missing_tools = []
-        
+
         for tool in required_tools:
             try:
                 subprocess.run(['which', tool], check=True, capture_output=True)
             except subprocess.CalledProcessError:
                 missing_tools.append(tool)
-        
+
         if missing_tools:
             print(f"Warning: Missing required tools for Labwc backend: {', '.join(missing_tools)}", file=sys.stderr)
-    
-    def _check_swww_daemon(self) -> bool:
-        """Check if swww daemon is running"""
+
+    def _check_awww_daemon(self) -> bool:
+        """Check if awww daemon is running"""
         try:
-            result = subprocess.run(['swww', 'query'], capture_output=True, text=True, timeout=2)
+            result = subprocess.run(['awww', 'query'], capture_output=True, text=True, timeout=2)
             return result.returncode == 0
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
             return False
@@ -146,18 +157,18 @@ class LabwcBackend:
         return None
     
     def set_wallpaper(self, wallpaper_path: Path, monitor: Optional[str] = None, transition: str = 'fade', scaling: str = 'crop') -> bool:
-        """Set wallpaper on specific monitor or all monitors using swww"""
-        if not self.swww_available:
-            print("Error: swww daemon is not running. Please start it with 'swww-daemon'", file=sys.stderr)
+        """Set wallpaper on specific monitor or all monitors using awww"""
+        if not self.awww_available:
+            print("Error: awww daemon is not running. Please start it with 'awww-daemon'", file=sys.stderr)
             return False
 
         try:
             # Generate colors with matugen first (SINGLE CALL - fixes slowness issue)
             matugen_success = self._generate_matugen_colors(wallpaper_path)
 
-            cmd = ['swww', 'img', str(wallpaper_path)]
+            cmd = ['awww', 'img', str(wallpaper_path)]
 
-            # Add transition settings (using valid swww transitions)
+            # Add transition settings (using valid awww transitions)
             valid_transitions = ['none', 'fade', 'left', 'right', 'top', 'bottom',
                                'wipe', 'wave', 'grow', 'center', 'outer']
             if transition not in valid_transitions:
@@ -166,8 +177,8 @@ class LabwcBackend:
             if transition != 'none':
                 cmd.extend([
                     '--transition-type', transition,
-                    '--transition-fps', '30',
-                    '--transition-duration', '1.5'
+                    '--transition-fps', str(_config.TRANSITION_FPS),
+                    '--transition-duration', str(_config.TRANSITION_DURATION)
                 ])
 
             # Add scaling mode
@@ -197,7 +208,7 @@ class LabwcBackend:
 
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
-            print(f"Error setting wallpaper with swww: {error_msg}", file=sys.stderr)
+            print(f"Error setting wallpaper with awww: {error_msg}", file=sys.stderr)
             return False
     
     def get_current_wallpaper(self, monitor: Optional[str] = None) -> Optional[Path]:
@@ -207,11 +218,11 @@ class LabwcBackend:
                 monitor = self.get_active_monitor()
                 if not monitor:
                     return None
-            
-            result = subprocess.run(['swww', 'query'], capture_output=True, text=True, check=True)
+
+            result = subprocess.run(['awww', 'query'], capture_output=True, text=True, check=True)
             for line in result.stdout.split('\n'):
                 if monitor in line and 'image:' in line:
-                    # Try to extract the file path from swww query output
+                    # Try to extract the file path from awww query output
                     parts = line.split('image:')
                     if len(parts) >= 2:
                         path_str = parts[1].strip()
@@ -219,21 +230,21 @@ class LabwcBackend:
                         if path.exists():
                             return path
                     break
-                    
+
         except subprocess.CalledProcessError as e:
             print(f"Error getting current wallpaper: {e}", file=sys.stderr)
         except Exception as e:
             print(f"Error getting current wallpaper: {e}", file=sys.stderr)
-        
+
         return None
-    
+
     def supports_per_monitor_wallpapers(self) -> bool:
         """Check if the backend supports per-monitor wallpapers"""
-        return self.swww_available  # swww supports per-monitor wallpapers
-    
+        return self.awww_available  # awww supports per-monitor wallpapers
+
     def supports_transitions(self) -> bool:
         """Check if the backend supports wallpaper transitions"""
-        return self.swww_available  # swww provides transition support
+        return self.awww_available  # awww provides transition support
     
     def get_supported_formats(self) -> List[str]:
         """Get list of supported wallpaper formats"""
@@ -294,6 +305,18 @@ class LabwcBackend:
             pass
         return True  # Default to enabled if matugen is available
     
+    def _get_matugen_mode(self) -> str:
+        """Return 'light' or 'dark' based on the saved Wall-IT theme setting."""
+        try:
+            theme_file = Path.home() / ".cache" / "wall-it" / "theme"
+            if theme_file.exists():
+                theme = theme_file.read_text().strip()
+                if theme == 'light':
+                    return 'light'
+        except Exception:
+            pass
+        return 'dark'
+
     def _generate_matugen_colors(self, wallpaper_path: Path) -> bool:
         """Generate colors using matugen for theme integration"""
         if not self._check_matugen_available() or not self._is_matugen_enabled():
@@ -301,14 +324,18 @@ class LabwcBackend:
         
         try:
             scheme = self._get_matugen_scheme()
+            mode = self._get_matugen_mode()
             cmd = [
                 'matugen', 'image', str(wallpaper_path),
-                '--mode', 'dark',
+                '--mode', mode,
                 '--type', scheme,
-                '--json', 'hex'
+                '--json', 'hex',
+                '--prefer', 'saturation',  # matugen 4.x: required for non-interactive use
             ]
-            
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=True)
+
+            # stdin=DEVNULL prevents matugen 4.x from blocking on terminal detection.
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15,
+                                    check=True, stdin=subprocess.DEVNULL)
             
             # Store the generated colors for integration
             cache_dir = Path.home() / ".cache" / "wall-it"
@@ -325,31 +352,47 @@ class LabwcBackend:
             print(f"Warning: matugen error: {e}", file=sys.stderr)
             return False
     
+    @staticmethod
+    def _extract_hex(entry, mode: str, fallback: str = '#000000') -> str:
+        """Extract a hex color from a matugen 4.x color entry.
+
+        matugen 4.x format: {"dark": {"color": "#hex"}, "light": {...}, "default": {...}}
+        matugen 3.x / flat format: plain '#hex' string.
+        """
+        if isinstance(entry, str):
+            return entry
+        if isinstance(entry, dict):
+            variant = entry.get(mode) or entry.get('default') or entry.get('dark') or {}
+            if isinstance(variant, dict):
+                return variant.get('color', fallback)
+        return fallback
+
+    def _get_colors_flat(self, colors_data: dict) -> Dict[str, str]:
+        """Flatten matugen 4.x JSON colors into a simple {name: '#hex'} dict."""
+        mode = self._get_matugen_mode()
+        raw = colors_data.get('colors', {})
+        return {name: self._extract_hex(entry, mode) for name, entry in raw.items()}
+
     def _apply_shell_integrations(self):
         """Apply colors to detected shell and UI integrations"""
-        cache_dir = Path.home() / ".cache" / "wall-it"
-        colors_file = cache_dir / "matugen_colors.json"
-        
+        colors_file = Path.home() / ".cache" / "wall-it" / "matugen_colors.json"
+
         if not colors_file.exists():
             return
-        
+
         try:
             colors_data = json.loads(colors_file.read_text())
-            # Extract dark theme colors (matugen v2.x format)
-            raw_colors = colors_data.get('colors', {})
-            if 'dark' in raw_colors:
-                colors = raw_colors['dark']  # Use dark theme colors
-            else:
-                colors = raw_colors  # Fallback for older format
-            
+            # Flatten matugen 4.x nested format into {name: '#hex'}
+            colors = self._get_colors_flat(colors_data)
+
             # Apply to common applications
             self._update_gtk_colors(colors)
             self._update_terminal_colors(colors)
-            
+
             # Detect and apply to specific shell integrations
             self._detect_and_update_waybar(colors)
             self._detect_and_update_noctalia(colors)
-            
+
         except Exception as e:
             print(f"Warning: Could not apply shell integrations: {e}", file=sys.stderr)
     
@@ -376,50 +419,19 @@ class LabwcBackend:
                 print(f"Warning: Could not update waybar: {e}", file=sys.stderr)
     
     def _basic_waybar_integration(self, colors: Dict, waybar_config: Path):
-        """Basic waybar color integration for users without custom scripts"""
+        """Write @define-color entries to colors.css for waybar's GTK CSS.
+
+        Waybar uses GTK CSS which requires @define-color, not CSS custom properties.
+        We write to colors.css (imported by style.css) rather than style.css itself.
+        """
         try:
-            style_css = waybar_config / "style.css"
-            if style_css.exists():
-                # Create a basic CSS variable injection
-                css_vars = f"""
-/* Wall-IT Generated Colors */
-:root {{
-  --wall-it-primary: {colors.get('primary', '#6366f1')};
-  --wall-it-secondary: {colors.get('secondary', '#8b5cf6')};
-  --wall-it-background: {colors.get('surface', '#1f2937')};
-  --wall-it-text: {colors.get('on_surface', '#ffffff')};
-  --wall-it-accent: {colors.get('tertiary', '#f59e0b')};
-}}
-"""
-                
-                existing_css = style_css.read_text()
-                
-                # Remove old Wall-IT section if exists
-                if "/* Wall-IT Generated Colors */" in existing_css:
-                    lines = existing_css.split('\n')
-                    new_lines = []
-                    skip = False
-                    for line in lines:
-                        if "/* Wall-IT Generated Colors */" in line:
-                            skip = True
-                        elif skip and line.strip() == '}':
-                            skip = False
-                            continue
-                        if not skip:
-                            new_lines.append(line)
-                    existing_css = '\n'.join(new_lines)
-                
-                # Add new colors
-                new_css = css_vars + '\n' + existing_css
-                style_css.write_text(new_css)
-                
-                # Send reload signal to waybar instead of restarting
-                try:
-                    subprocess.run(['pkill', '-SIGUSR2', 'waybar'], stderr=subprocess.DEVNULL)
-                except:
-                    # If signal fails, waybar might not be running or doesn't support reload
-                    pass
-                
+            colors_css = waybar_config / "colors.css"
+            lines = ["/* Generated by Wall-IT via matugen */\n"]
+            for name, hex_val in sorted(colors.items()):
+                lines.append(f"@define-color {name} {hex_val};\n")
+            colors_css.write_text(''.join(lines))
+            # Reload waybar to pick up the new colors
+            subprocess.run(['pkill', '-SIGUSR2', 'waybar'], stderr=subprocess.DEVNULL)
         except Exception as e:
             print(f"Warning: Basic waybar integration failed: {e}", file=sys.stderr)
     
@@ -427,10 +439,10 @@ class LabwcBackend:
         """Detect and update noctalia-shell if present"""
         noctalia_config = Path.home() / ".config" / "noctalia"
         noctalia_colors = noctalia_config / "colors.json"
-        
+
         if noctalia_config.exists():
             try:
-                # Convert matugen colors to noctalia format
+                # colors is already a flat {name: '#hex'} dict (see _get_colors_flat)
                 noctalia_color_format = {
                     "mError": colors.get('error', '#fd4663'),
                     "mOnError": colors.get('on_error', '#ffffff'),
@@ -466,15 +478,14 @@ class LabwcBackend:
             # Update GTK theme colors
             gtk_config = Path.home() / ".config" / "gtk-3.0" / "gtk.css"
             gtk_config.parent.mkdir(parents=True, exist_ok=True)
-            
+
+            # colors is a flat {name: '#hex'} dict — use @define-color for GTK CSS
             css_content = f"""/* Wall-IT Generated Colors */
-:root {{
-  --wall-it-primary: {colors.get('primary', '#6366f1')};
-  --wall-it-secondary: {colors.get('secondary', '#8b5cf6')};
-  --wall-it-background: {colors.get('surface', '#1f2937')};
-  --wall-it-text: {colors.get('on_surface', '#ffffff')};
-  --wall-it-accent: {colors.get('tertiary', '#f59e0b')};
-}}
+@define-color wall_it_primary {colors.get('primary', '#6366f1')};
+@define-color wall_it_secondary {colors.get('secondary', '#8b5cf6')};
+@define-color wall_it_background {colors.get('surface', '#1f2937')};
+@define-color wall_it_text {colors.get('on_surface', '#ffffff')};
+@define-color wall_it_accent {colors.get('tertiary', '#f59e0b')};
 """
             
             # Append to existing GTK CSS (don't overwrite)
@@ -534,7 +545,7 @@ def test_labwc_backend():
     
     # Basic availability
     print(f"Labwc Backend Available: {backend.is_available()}")
-    print(f"swww Daemon Available: {backend.swww_available}")
+    print(f"awww Daemon Available: {backend.awww_available}")
     print(f"matugen Available: {backend._check_matugen_available()}")
     print(f"matugen Enabled: {backend._is_matugen_enabled()}")
     
@@ -586,13 +597,14 @@ def restore_wallpaper():
     wallpaper_file = cache_dir / "current_wallpaper"
     effect_file = cache_dir / "current_effect"
     
-    if not wallpaper_file.exists() or not effect_file.exists():
+    if not wallpaper_file.exists():
         print("No wallpaper state to restore")
         return False
     
     try:
         wallpaper_path = Path(wallpaper_file.read_text().strip())
-        effect = effect_file.read_text().strip()
+        # Treat missing effect file as 'none' rather than failing entirely
+        effect = effect_file.read_text().strip() if effect_file.exists() else 'none'
         
         if wallpaper_path.exists():
             backend = LabwcBackend()

@@ -1766,6 +1766,7 @@ class WallpaperConfig:
         self.transition_effect_file = self.cache_dir / "transition_effect"
         self.current_effect_file = self.cache_dir / "current_effect"
         self.system_tray_enabled_file = self.cache_dir / "system_tray_enabled"
+        self.theme_file = self.cache_dir / "theme"
         
         # Per-monitor state tracking
         self.monitor_wallpapers_file = self.cache_dir / "monitor_wallpapers.json"
@@ -2248,10 +2249,13 @@ class WallpaperSetter:
         """Update system colors using matugen - FIXED"""
         try:
             scheme = self.get_matugen_scheme()
-            print(f"🎨 Updating colors with matugen for {image_path.name} using {scheme} scheme")
+            # Derive matugen mode from the saved app theme setting.
+            current_theme = self.get_theme()
+            mode = 'light' if current_theme == 'light' else 'dark'
+            print(f"🎨 Updating colors with matugen for {image_path.name} using {scheme} scheme ({mode} mode)")
             
             # Run matugen with proper arguments for new version
-            cmd = ['matugen', 'image', str(image_path), '-t', scheme, '--json', 'hex']
+            cmd = ['matugen', 'image', str(image_path), '--mode', mode, '-t', scheme, '--json', 'hex']
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             
             if result.returncode == 0:
@@ -2259,9 +2263,14 @@ class WallpaperSetter:
                     # Parse matugen JSON output
                     colors_data = json.loads(result.stdout)
                     
-                    # Extract colors for notification daemon
+                    # Extract colors for notification daemon.
+                    # matugen v2 returns {"colors": {"dark": {...}, "light": {...}}} when
+                    # --mode is not given, but a flat {"colors": {...}} when --mode is set.
+                    # We always pass --mode now, so handle both shapes for safety.
                     if 'colors' in colors_data:
-                        colors = colors_data['colors']
+                        raw_colors = colors_data['colors']
+                        # Prefer the mode-keyed sub-dict; fall back to the flat dict.
+                        colors = raw_colors.get(mode, raw_colors)
                         
                         # Map matugen colors to notification daemon format
                         notification_colors = {
@@ -2385,6 +2394,20 @@ class WallpaperSetter:
     def set_system_tray_enabled(self, enabled: bool):
         """Enable/disable system tray integration"""
         self.config.system_tray_enabled_file.write_text('true' if enabled else 'false')
+    
+    def get_theme(self) -> str:
+        """Get current theme: 'system', 'light', or 'dark'"""
+        try:
+            if self.config.theme_file.exists():
+                return self.config.theme_file.read_text().strip()
+        except Exception:
+            pass
+        return 'system'  # Default to system theme
+    
+    def set_theme(self, theme: str):
+        """Set theme: 'system', 'light', or 'dark'"""
+        if theme in ['system', 'light', 'dark']:
+            self.config.theme_file.write_text(theme)
     
     def get_monitor_wallpapers(self) -> Dict[str, str]:
         """Get current wallpaper for each monitor"""
@@ -2927,6 +2950,282 @@ class WallpaperApp(Gtk.ApplicationWindow):
         
         # Apply CSS styling
         self.apply_css_styling()
+        
+        # Apply saved theme
+        self.apply_theme()
+    
+    def apply_theme(self):
+        """Apply the saved theme setting (system/light/dark).
+
+        We intentionally do NOT override gtk_theme_name here. Forcing it to
+        'Adwaita'/'Adwaita:dark' replaces the user's actual system GTK theme
+        (e.g. the matugen-generated theme) with Adwaita, which breaks the
+        window background and makes the centre of the window transparent
+        because Adwaita's CSS doesn't match the running compositor setup.
+
+        Instead we only toggle the dark-preference hint, which tells the
+        current system theme to use its dark variant. This keeps the app
+        consistent with the rest of the desktop (labwc/waybar/fuzzel).
+
+        For explicit light/dark themes we apply a solid background override
+        CSS so the window has a distinct appearance regardless of the system
+        GTK theme. For 'system' mode we let the theme colors (including
+        transparency) pass through naturally."""
+        try:
+            theme = self.wallpaper_setter.get_theme()
+            settings = Gtk.Settings.get_default()
+            if settings:
+                if theme == 'dark':
+                    settings.props.gtk_application_prefer_dark_theme = True
+                    print("🌙 Applied dark theme")
+                elif theme == 'light':
+                    settings.props.gtk_application_prefer_dark_theme = False
+                    print("☀️ Applied light theme")
+                else:
+                    # System default - do NOT touch dark preference, let GTK follow desktop
+                    print("💻 Applied system theme (following desktop)")
+                
+                # Re-apply CSS with theme-specific overrides
+                self._reapply_css(theme)
+                # Force widgets to redraw with new colors
+                self._force_widget_redraw()
+        except Exception as e:
+            print(f"Warning: Could not apply theme: {e}")
+    
+    def _reapply_css(self, theme='system'):
+        """Re-apply CSS styling to force @theme_* variables to re-evaluate.
+        For explicit light/dark themes, adds solid background overrides so
+        the window has a distinct opaque look."""
+        display = Gdk.Display.get_default()
+        if not display:
+            return
+            
+        # Store and recycle CSS providers so old colors don't linger.
+        if not hasattr(self, '_css_providers'):
+            self._css_providers = []
+        
+        try:
+            css = self._get_css_styling()
+            
+            # For explicit light/dark, add solid background override.
+            # For system mode, leave transparency intact.
+            if theme == 'dark':
+                css += """
+                window, .background, window > box, window > box > box {
+                    background-color: shade(@theme_bg_color, 0.85);
+                }
+                """
+            elif theme == 'light':
+                css += """
+                window, .background, window > box, window > box > box {
+                    background-color: shade(@theme_bg_color, 1.15);
+                }
+                """
+            # For 'system' mode: no background override, let theme transparency show
+            
+            new_provider = Gtk.CssProvider()
+            new_provider.load_from_data(css.encode())
+            
+            Gtk.StyleContext.add_provider_for_display(
+                display, new_provider,
+                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+            )
+            
+            # Keep only the last 2 providers to avoid unbounded growth
+            self._css_providers.append(new_provider)
+            if len(self._css_providers) > 2:
+                old = self._css_providers.pop(0)
+                try:
+                    Gtk.StyleContext.remove_provider_for_display(display, old)
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"Warning: Could not reapply CSS: {e}")
+    
+    def _force_widget_redraw(self):
+        """Force all widgets to redraw with fresh style context"""
+        try:
+            def force_redraw(widget):
+                if widget is None:
+                    return
+                # Queue full redraw and reallocation
+                widget.queue_draw()
+                widget.queue_allocate()
+                # Reset widget's style context to force re-resolve
+                ctx = widget.get_style_context()
+                ctx.remove_class('force-reset')
+                ctx.add_class('force-reset')
+                ctx.remove_class('force-reset')
+                # Recurse children
+                child = widget.get_first_child()
+                while child:
+                    force_redraw(child)
+                    child = child.get_next_sibling()
+            
+            force_redraw(self)
+            # Also queue idle redraw for next frame
+            GLib.idle_add(lambda: (self.queue_draw(), self.queue_allocate(), False))
+        except Exception as e:
+            print(f"Warning: Could not force redraw: {e}")
+    
+    def _get_css_styling(self):
+        """Get the CSS styling string.
+        
+        Uses @theme_* variables so GTK resolves them at provider-registration time.
+        The window background is inherited from the GTK theme (may be transparent
+        for 'system' mode). For explicit light/dark themes, labels get proper
+        colors from the resolved theme values."""
+        css = """
+        .toolbar separator {
+            margin: 2px 4px;
+        }
+
+        /* Smooth transitions on all toolbar buttons */
+        .toolbar button {
+            min-height: 24px;
+            min-width: 24px;
+            padding: 2px;
+            margin: 1px;
+            border-radius: 6px;
+            transition:
+                background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
+                box-shadow      0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .toolbar button:hover {
+            background-color: alpha(@theme_fg_color, 0.1);
+            box-shadow: 0 1px 4px alpha(@theme_shadow_color, 0.25);
+        }
+
+        .toolbar button:active {
+            background-color: alpha(@theme_fg_color, 0.18);
+            box-shadow: inset 0 1px 2px alpha(@theme_shadow_color, 0.35);
+            transition-duration: 0.06s;
+        }
+
+        .toolbar dropdown,
+        .toolbar dropdown > button {
+            min-height: 24px;
+            margin: 1px;
+            border-radius: 6px;
+        }
+
+        .toolbar dropdown > button:hover {
+            background-color: alpha(@theme_fg_color, 0.1);
+        }
+
+        .toolbar > box > box {
+            background: alpha(@theme_bg_color, 0.4);
+            border-radius: 3px;
+            margin: 1px;
+        }
+
+        .status-bar {
+            padding: 8px;
+            background: alpha(@theme_bg_color, 0.6);
+            border-radius: 0 0 8px 8px;
+            transition: background-color 0.3s ease;
+        }
+
+        .drop-hover {
+            background: alpha(@theme_selected_bg_color, 0.2);
+            border: 2px dashed alpha(@theme_selected_bg_color, 0.5);
+            border-radius: 8px;
+        }
+
+        .high-res-indicator {
+            font-size: 10px;
+            color: #10b981;
+            font-weight: bold;
+        }
+
+        button {
+            min-height: 32px;
+            border-radius: 8px;
+            transition:
+                background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                box-shadow      0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        button:hover {
+            background-color: alpha(@theme_fg_color, 0.09);
+        }
+
+        switch {
+            min-height: 24px;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* Compact switches - use theme colors */
+        .compact-switch {
+            min-height: 8px;
+            max-height: 8px;
+            min-width: 32px;
+            margin: 1px;
+            padding: 2px;
+            background: alpha(@theme_bg_color, 0.6);
+            border-radius: 8px;
+            transition:
+                background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .compact-switch > slider {
+            min-height: 6px;
+            max-height: 6px;
+            min-width: 6px;
+            max-width: 6px;
+            margin: 1px;
+            border-radius: 3px;
+            background: @theme_fg_color;
+            border: none;
+            box-shadow: 0 1px 3px alpha(@theme_shadow_color, 0.3);
+            transition:
+                background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .compact-switch > trough {
+            min-height: 8px;
+            max-height: 8px;
+            min-width: 28px;
+            border-radius: 6px;
+            background: alpha(@theme_bg_color, 0.8);
+            border: 1px solid alpha(@theme_bg_color, 0.9);
+            transition:
+                background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                border-color    0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .compact-switch:checked > trough {
+            background: @theme_fg_color;
+            border: 1px solid alpha(@theme_fg_color, 0.8);
+        }
+
+        .compact-switch:checked > slider {
+            background: @accent_color;
+            border: none;
+        }
+
+        dropdown {
+            max-width: 200px;
+            transition: opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        dropdown > button {
+            max-width: 200px;
+            text-overflow: ellipsis;
+        }
+
+        window {
+            transition: opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* Labels should always use theme text color and transparent background */
+        label {
+            color: @theme_fg_color;
+            background-color: transparent;
+        }
+        """
+        return css
     
     def create_enhanced_toolbar(self):
         """Create enhanced toolbar with all features"""
@@ -3356,171 +3655,8 @@ class WallpaperApp(Gtk.ApplicationWindow):
     
     def apply_css_styling(self):
         """Apply CSS styling with smooth hover transitions and drag/drop"""
-        css = """
-        .toolbar {
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 4px;
-            padding: 2px;
-        }
-
-        .toolbar box {
-            padding: 1px;
-            margin: 1px;
-        }
-
-        .toolbar separator {
-            margin: 2px 4px;
-            opacity: 0.2;
-        }
-
-        /* Smooth transitions on all toolbar buttons */
-        .toolbar button {
-            min-height: 24px;
-            min-width: 24px;
-            padding: 2px;
-            margin: 1px;
-            border-radius: 6px;
-            transition:
-                background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-                box-shadow      0.2s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .toolbar button:hover {
-            background-color: rgba(255, 255, 255, 0.15);
-            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
-        }
-
-        .toolbar button:active {
-            background-color: rgba(255, 255, 255, 0.22);
-            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35) inset;
-            transition-duration: 0.06s;
-        }
-
-        .toolbar dropdown {
-            min-height: 24px;
-            margin: 1px;
-        }
-
-        .toolbar dropdown > button {
-            min-height: 24px;
-            padding: 1px 4px;
-            border-radius: 6px;
-            transition:
-                background-color 0.2s cubic-bezier(0.4, 0, 0.2, 1),
-                box-shadow      0.2s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .toolbar dropdown > button:hover {
-            background-color: rgba(255, 255, 255, 0.15);
-            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
-        }
-
-        .toolbar > box > box {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 3px;
-            margin: 1px;
-        }
-
-        .status-bar {
-            padding: 8px;
-            background: rgba(0, 0, 0, 0.1);
-            border-radius: 0 0 8px 8px;
-            transition: background-color 0.3s ease;
-        }
-
-        .drop-hover {
-            background: rgba(99, 102, 241, 0.2);
-            border: 2px dashed rgba(99, 102, 241, 0.5);
-            border-radius: 8px;
-        }
-
-        .high-res-indicator {
-            font-size: 10px;
-            color: #10b981;
-            font-weight: bold;
-        }
-
-        button {
-            min-height: 32px;
-            border-radius: 8px;
-            transition:
-                background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-                box-shadow      0.25s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        button:hover {
-            background-color: rgba(255, 255, 255, 0.09);
-        }
-
-        switch {
-            min-height: 24px;
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        /* Compact switches */
-        .compact-switch {
-            min-height: 8px;
-            max-height: 8px;
-            min-width: 32px;
-            margin: 1px;
-            padding: 2px;
-            background: rgba(0, 0, 0, 0.4);
-            border-radius: 8px;
-            transition:
-                background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .compact-switch > slider {
-            min-height: 6px;
-            max-height: 6px;
-            min-width: 6px;
-            max-width: 6px;
-            margin: 1px;
-            border-radius: 3px;
-            background: #ffffff;
-            border: none;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-            transition:
-                background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .compact-switch > trough {
-            min-height: 8px;
-            max-height: 8px;
-            min-width: 28px;
-            border-radius: 6px;
-            background: rgba(60, 60, 60, 0.8);
-            border: 1px solid rgba(40, 40, 40, 0.9);
-            transition:
-                background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
-                border-color    0.25s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .compact-switch:checked > trough {
-            background: #ffffff;
-            border: 1px solid rgba(200, 200, 200, 0.8);
-        }
-
-        .compact-switch:checked > slider {
-            background: rgba(99, 102, 241, 0.9);
-            border: none;
-        }
-
-        dropdown {
-            max-width: 200px;
-            transition: opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        dropdown > button {
-            max-width: 200px;
-            text-overflow: ellipsis;
-        }
-
-        window {
-            transition: opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        """
-
+        css = self._get_css_styling()
+        
         css_provider = Gtk.CssProvider()
         css_provider.load_from_data(css.encode())
 
@@ -3529,6 +3665,20 @@ class WallpaperApp(Gtk.ApplicationWindow):
             display, css_provider,
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
+        
+        # Ensure the display respects theme changes
+        if display:
+            # Only toggle the dark-preference hint; do NOT override
+            # gtk_theme_name (that would replace the user's system GTK theme,
+            # e.g. Pitch-Black-Blurred-gtk, and break the window background).
+            settings = Gtk.Settings.get_default()
+            if settings:
+                current_theme = self.wallpaper_setter.get_theme()
+                if current_theme == 'dark':
+                    settings.props.gtk_application_prefer_dark_theme = True
+                elif current_theme == 'light':
+                    settings.props.gtk_application_prefer_dark_theme = False
+                # For 'system' theme, do nothing - let GTK follow desktop defaults
     def setup_keyboard_shortcuts(self):
         """Setup keyboard shortcuts"""
         key_controller = Gtk.EventControllerKey()
@@ -3974,6 +4124,47 @@ class WallpaperApp(Gtk.ApplicationWindow):
             tray_frame.set_child(tray_box)
             general_box.append(tray_frame)
         
+        # Theme Settings
+        theme_frame = Gtk.Frame()
+        theme_frame.set_label("Theme")
+        theme_frame.set_margin_bottom(12)
+        
+        theme_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        theme_box.set_margin_top(8)
+        theme_box.set_margin_bottom(8)
+        theme_box.set_margin_start(12)
+        theme_box.set_margin_end(12)
+        
+        theme_mode_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        theme_mode_label = Gtk.Label()
+        theme_mode_label.set_text("App Theme:")
+        theme_mode_label.set_size_request(150, -1)
+        
+        theme_dropdown = Gtk.DropDown()
+        theme_options = Gtk.StringList()
+        theme_options.append("System (Follow System)")
+        theme_options.append("Light")
+        theme_options.append("Dark")
+        theme_dropdown.set_model(theme_options)
+        
+        # Set current theme
+        current_theme = self.wallpaper_setter.get_theme()
+        theme_map = {'system': 0, 'light': 1, 'dark': 2}
+        theme_dropdown.set_selected(theme_map.get(current_theme, 0))
+        
+        theme_mode_box.append(theme_mode_label)
+        theme_mode_box.append(theme_dropdown)
+        theme_box.append(theme_mode_box)
+        
+        theme_info = Gtk.Label()
+        theme_info.set_markup('<span size="small">Choose between System (follows your desktop theme), Light, or Dark mode for the Wall-IT interface</span>')
+        theme_info.set_wrap(True)
+        theme_info.set_halign(Gtk.Align.START)
+        theme_box.append(theme_info)
+        
+        theme_frame.set_child(theme_box)
+        general_box.append(theme_frame)
+        
         # Keybind Behavior Settings
         keybind_frame = Gtk.Frame()
         keybind_frame.set_label("Keybind Behavior")
@@ -4122,6 +4313,15 @@ class WallpaperApp(Gtk.ApplicationWindow):
                         self.system_tray_manager.create_tray_icon()
                         self.update_status("📟 System tray enabled")
                 
+                # Save theme setting
+                theme_selected = theme_dropdown.get_selected()
+                theme_map_reverse = {0: 'system', 1: 'light', 2: 'dark'}
+                new_theme = theme_map_reverse.get(theme_selected, 'system')
+                self.wallpaper_setter.set_theme(new_theme)
+                self.apply_theme()
+                theme_text = "System" if new_theme == 'system' else new_theme.title()
+                self.update_status(f"🎨 Theme set to: {theme_text}")
+                
                 # Save keybind mode setting
                 keybind_mode_selected = keybind_mode_dropdown.get_selected()
                 new_mode = 'all' if keybind_mode_selected == 0 else 'active'
@@ -4133,6 +4333,9 @@ class WallpaperApp(Gtk.ApplicationWindow):
         
         dialog.connect('response', on_dialog_response)
         dialog.present()
+        
+        # Refresh the window to apply any theme changes
+        self.apply_theme()
     
     def delete_selected_wallpaper(self):
         """Remove the currently selected wallpaper from Wall-IT collection"""

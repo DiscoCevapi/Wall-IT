@@ -4,11 +4,12 @@ Wall-IT Hyprland Backend
 Provides Hyprland-specific functionality for wallpaper management
 """
 
+import os
 import subprocess
 import json
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 
 class HyprlandBackend:
@@ -17,26 +18,26 @@ class HyprlandBackend:
     def __init__(self):
         self.name = "Hyprland"
         self.verify_tools()
-        self.swww_available = self._check_swww_daemon()
-    
+        self.awww_available = self._check_awww_daemon()
+
     def verify_tools(self):
         """Verify that required Hyprland tools are available"""
-        required_tools = ['hyprctl', 'swww']
+        required_tools = ['hyprctl', 'awww']
         missing_tools = []
-        
+
         for tool in required_tools:
             try:
                 subprocess.run(['which', tool], check=True, capture_output=True)
             except subprocess.CalledProcessError:
                 missing_tools.append(tool)
-        
+
         if missing_tools:
             print(f"Warning: Missing required tools for Hyprland backend: {', '.join(missing_tools)}", file=sys.stderr)
-    
-    def _check_swww_daemon(self) -> bool:
-        """Check if swww daemon is running"""
+
+    def _check_awww_daemon(self) -> bool:
+        """Check if awww daemon is running"""
         try:
-            result = subprocess.run(['swww', 'query'], capture_output=True, text=True, timeout=2)
+            result = subprocess.run(['awww', 'query'], capture_output=True, text=True, timeout=2)
             return result.returncode == 0
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
             return False
@@ -114,16 +115,16 @@ class HyprlandBackend:
         return None
     
     def set_wallpaper(self, wallpaper_path: Path, monitor: Optional[str] = None, transition: str = 'fade', scaling: str = 'crop') -> bool:
-        """Set wallpaper on specific monitor or all monitors using swww"""
-        if not self.swww_available:
-            print("Error: swww daemon is not running. Please start it with 'swww init'", file=sys.stderr)
+        """Set wallpaper on specific monitor or all monitors using awww"""
+        if not self.awww_available:
+            print("Error: awww daemon is not running. Please start it with 'awww init'", file=sys.stderr)
             return False
 
         try:
             # Generate colors with matugen first (before setting wallpaper)
             matugen_success = self._generate_matugen_colors(wallpaper_path)
 
-            cmd = ['swww', 'img', str(wallpaper_path)]
+            cmd = ['awww', 'img', str(wallpaper_path)]
 
             # Add transition settings
             if transition != 'none':
@@ -152,7 +153,7 @@ class HyprlandBackend:
 
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
-            print(f"Error setting wallpaper with swww: {error_msg}", file=sys.stderr)
+            print(f"Error setting wallpaper with awww: {error_msg}", file=sys.stderr)
             return False
     
     def get_current_wallpaper(self, monitor: Optional[str] = None) -> Optional[Path]:
@@ -162,8 +163,8 @@ class HyprlandBackend:
                 monitor = self.get_active_monitor()
                 if not monitor:
                     return None
-            
-            result = subprocess.run(['swww', 'query'], capture_output=True, text=True, check=True)
+
+            result = subprocess.run(['awww', 'query'], capture_output=True, text=True, check=True)
             for line in result.stdout.split('\n'):
                 if f"Output {monitor}:" in line:
                     # Try to extract the file path
@@ -173,21 +174,21 @@ class HyprlandBackend:
                         if path.exists():
                             return path
                     break
-                    
+
         except subprocess.CalledProcessError as e:
             print(f"Error getting current wallpaper: {e}", file=sys.stderr)
         except Exception as e:
             print(f"Error getting current wallpaper: {e}", file=sys.stderr)
-        
+
         return None
-    
+
     def supports_per_monitor_wallpapers(self) -> bool:
         """Check if the backend supports per-monitor wallpapers"""
-        return self.swww_available  # swww supports per-monitor wallpapers
-    
+        return self.awww_available  # awww supports per-monitor wallpapers
+
     def supports_transitions(self) -> bool:
         """Check if the backend supports wallpaper transitions"""
-        return self.swww_available  # swww provides transition support
+        return self.awww_available  # awww provides transition support
     
     def get_supported_formats(self) -> List[str]:
         """Get list of supported wallpaper formats"""
@@ -236,6 +237,18 @@ class HyprlandBackend:
             pass
         return True  # Default to enabled if matugen is available
     
+    def _get_matugen_mode(self) -> str:
+        """Return 'light' or 'dark' based on the saved Wall-IT theme setting."""
+        try:
+            theme_file = Path.home() / ".cache" / "wall-it" / "theme"
+            if theme_file.exists():
+                theme = theme_file.read_text().strip()
+                if theme == 'light':
+                    return 'light'
+        except Exception:
+            pass
+        return 'dark'
+
     def _generate_matugen_colors(self, wallpaper_path: Path) -> bool:
         """Generate colors using matugen for theme integration"""
         if not self._check_matugen_available() or not self._is_matugen_enabled():
@@ -243,9 +256,10 @@ class HyprlandBackend:
         
         try:
             scheme = self._get_matugen_scheme()
+            mode = self._get_matugen_mode()
             cmd = [
                 'matugen', 'image', str(wallpaper_path),
-                '--mode', 'dark',
+                '--mode', mode,
                 '--type', scheme,
                 '--json', 'hex'
             ]
@@ -344,7 +358,7 @@ def test_hyprland_backend():
     
     # Basic availability
     print(f"Hyprland Backend Available: {backend.is_available()}")
-    print(f"swww Daemon Available: {backend.swww_available}")
+    print(f"awww Daemon Available: {backend.awww_available}")
     print(f"matugen Available: {backend._check_matugen_available()}")
     print(f"matugen Enabled: {backend._is_matugen_enabled()}")
     

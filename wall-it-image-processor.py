@@ -18,25 +18,37 @@ except ImportError:
 
 
 def get_screen_resolution() -> Optional[Tuple[int, int]]:
-    """Get screen resolution from niri or other compositor."""
+    """Get screen resolution from the running compositor."""
     import subprocess
-    
+    import re
+
+    # Try niri first
     try:
-        # Try niri first
-        result = subprocess.run(['niri', 'msg', 'outputs'], 
-                              capture_output=True, text=True, check=True)
+        result = subprocess.run(['niri', 'msg', 'outputs'],
+                                capture_output=True, text=True, check=True, timeout=3)
         for line in result.stdout.split('\n'):
             if 'Current mode:' in line:
-                # Parse: "Current mode: 3440x1440 @ 155.000 Hz"
-                import re
                 match = re.search(r'(\d+)x(\d+)', line)
                 if match:
                     return (int(match.group(1)), int(match.group(2)))
-    except:
+    except Exception:
         pass
-    
-    # Fallback: try to detect from environment or return common ultrawide
-    return (3440, 1440)  # Default to 21:9 ultrawide
+
+    # Try wlr-randr (covers labwc, sway, and other wlroots compositors)
+    try:
+        result = subprocess.run(['wlr-randr'],
+                                capture_output=True, text=True, check=True, timeout=3)
+        for line in result.stdout.split('\n'):
+            # Lines like: "  3440x1440 px, 155.000 Hz (preferred, current)"
+            if 'current' in line and 'x' in line and 'px' in line:
+                match = re.search(r'(\d+)x(\d+)', line)
+                if match:
+                    return (int(match.group(1)), int(match.group(2)))
+    except Exception:
+        pass
+
+    # Last resort: hardcoded ultrawide default
+    return (3440, 1440)
 
 
 def create_fit_blur_wallpaper(input_path: Path, output_path: Path, 
@@ -140,8 +152,9 @@ def process_wallpaper_with_mode(input_path: Path, output_dir: Path,
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Generate output filename
-    input_hash = str(hash(input_path))[-8:]
+    # Generate stable output filename using md5 (hash() is randomized per process)
+    import hashlib
+    input_hash = hashlib.md5(str(input_path).encode()).hexdigest()[:8]
     output_filename = f"{input_path.stem}_{mode}_{input_hash}.jpg"
     output_path = output_dir / output_filename
     
@@ -152,7 +165,7 @@ def process_wallpaper_with_mode(input_path: Path, output_dir: Path,
     if mode == 'fit-blur':
         return create_fit_blur_wallpaper(input_path, output_path)
     elif mode in ['crop', 'fit', 'stretch']:
-        # For other modes, just return original (handled by swww)
+        # For other modes, just return original (handled by awww)
         return input_path
     else:
         print(f"Unknown mode: {mode}, using original image", file=sys.stderr)

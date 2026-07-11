@@ -77,20 +77,15 @@ def main() -> int:
     transition = common.get_transition_effect()
     effect = common.get_current_effect()
     matugen_enabled = common.is_matugen_enabled()
-    
-    # Generate colors if matugen is enabled
-    if matugen_enabled:
-        scheme = common.get_matugen_scheme()
-        print(f"Wall-IT: Generating colors for {prev_wallpaper.name}...")
-        common.generate_colors_with_matugen(prev_wallpaper, scheme)
-    
-    # Set the wallpaper
+    scheme = common.get_matugen_scheme() if matugen_enabled else None
+
+    # Set the wallpaper (the backend handles matugen internally - no double call)
     if common.set_wallpaper(prev_wallpaper, transition, effect, backend_manager):
         # Update state tracking
         if target_monitor:
             state_manager.set_current_wallpaper(target_monitor, prev_wallpaper)
 
-        if matugen_enabled:
+        if matugen_enabled and scheme:
             common.print_matugen_status(scheme)
         return 0
     else:

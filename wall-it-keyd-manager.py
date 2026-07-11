@@ -12,25 +12,7 @@ import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional
 
-# Add current directory to path for imports
-sys.path.insert(0, os.path.dirname(__file__))
-
-try:
-    from wall_it_keybind_config import WallITKeybindConfig, Keybind, KeybindAction
-except ImportError:
-    # Try with underscores replaced with hyphens (file naming convention)
-    try:
-        import importlib.util
-        config_path = Path(__file__).parent / "wall-it-keybind-config.py"
-        spec = importlib.util.spec_from_file_location("keybind_config", config_path)
-        keybind_config_module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(keybind_config_module)
-        WallITKeybindConfig = keybind_config_module.WallITKeybindConfig
-        Keybind = keybind_config_module.Keybind
-        KeybindAction = keybind_config_module.KeybindAction
-    except Exception as e:
-        print(f"❌ Could not import keybind configuration: {e}")
-        sys.exit(1)
+from wall_it_keybind_config import WallITKeybindConfig, Keybind, KeybindAction
 
 class WallITKeydManager:
     """Manages keyd configuration for Wall-IT keybinds"""

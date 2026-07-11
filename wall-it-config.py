@@ -81,8 +81,8 @@ SCHEME_DISPLAY_NAMES = {
 }
 
 # Daemon constants
-SWWW_DAEMON_NAME = 'swww-daemon'
-SWWW_INIT_DELAY = 1.0
+AWWW_DAEMON_NAME = 'awww-daemon'
+AWWW_INIT_DELAY = 1.0
 
 # Photo effect quality
 EFFECT_JPEG_QUALITY = 95

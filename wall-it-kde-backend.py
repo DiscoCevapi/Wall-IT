@@ -4,11 +4,12 @@ Wall-IT KDE Backend
 Provides KDE/Plasma-specific functionality for wallpaper management
 """
 
+import os
 import subprocess
 import json
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 
 class KDEBackend:
@@ -17,26 +18,26 @@ class KDEBackend:
     def __init__(self):
         self.name = "KDE"
         self.verify_tools()
-        self.swww_available = self._check_swww_daemon()
-    
+        self.awww_available = self._check_awww_daemon()
+
     def verify_tools(self):
         """Verify that required KDE tools are available"""
         required_tools = ['qdbus', 'plasma-apply-wallpaperimage', 'xrandr']
         missing_tools = []
-        
+
         for tool in required_tools:
             try:
                 subprocess.run(['which', tool], check=True, capture_output=True)
             except subprocess.CalledProcessError:
                 missing_tools.append(tool)
-        
+
         if missing_tools:
             print(f"Warning: Missing required tools for KDE backend: {', '.join(missing_tools)}", file=sys.stderr)
-    
-    def _check_swww_daemon(self) -> bool:
-        """Check if swww daemon is running for hybrid transition support"""
+
+    def _check_awww_daemon(self) -> bool:
+        """Check if awww daemon is running for hybrid transition support"""
         try:
-            result = subprocess.run(['swww', 'query'], capture_output=True, text=True, timeout=2)
+            result = subprocess.run(['awww', 'query'], capture_output=True, text=True, timeout=2)
             return result.returncode == 0
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
             return False
@@ -167,26 +168,26 @@ class KDEBackend:
         return None
     
     def set_wallpaper(self, wallpaper_path: Path, monitor: Optional[str] = None, transition: str = 'fade', scaling: str = 'crop') -> bool:
-        """Set wallpaper on specific monitor or all monitors (hybrid KDE+swww approach)"""
+        """Set wallpaper on specific monitor or all monitors (hybrid KDE+awww approach)"""
         try:
-            # Hybrid approach: Use swww for transitions if available, KDE for monitor-specific control
-            if self.swww_available and transition != 'none':
-                return self._set_wallpaper_swww(wallpaper_path, monitor, transition, scaling)
+            # Hybrid approach: Use awww for transitions if available, KDE for monitor-specific control
+            if self.awww_available and transition != 'none':
+                return self._set_wallpaper_awww(wallpaper_path, monitor, transition, scaling)
             else:
                 return self._set_wallpaper_kde_native(wallpaper_path, monitor)
 
         except Exception as e:
             print(f"Error setting wallpaper: {e}", file=sys.stderr)
             return False
-    
-    def _set_wallpaper_swww(self, wallpaper_path: Path, monitor: Optional[str] = None, transition: str = 'fade', scaling: str = 'crop') -> bool:
-        """Set wallpaper using swww for beautiful transitions with matugen support"""
+
+    def _set_wallpaper_awww(self, wallpaper_path: Path, monitor: Optional[str] = None, transition: str = 'fade', scaling: str = 'crop') -> bool:
+        """Set wallpaper using awww for beautiful transitions with matugen support"""
         try:
             # Generate colors with matugen first (before setting wallpaper)
             matugen_success = self._generate_matugen_colors(wallpaper_path)
-            
-            cmd = ['swww', 'img', str(wallpaper_path)]
-            
+
+            cmd = ['awww', 'img', str(wallpaper_path)]
+
             # Add transition settings
             if transition != 'none':
                 cmd.extend([
@@ -194,31 +195,31 @@ class KDEBackend:
                     '--transition-fps', '30',
                     '--transition-duration', '1.5'
                 ])
-            
+
             # Add scaling mode
             cmd.extend(['--resize', scaling])
-            
+
             # Add monitor targeting if specified
             if monitor:
                 cmd.extend(['--outputs', monitor])
-                print(f"Wall-IT: Setting wallpaper on monitor {monitor} with {transition} transition (swww)")
+                print(f"Wall-IT: Setting wallpaper on monitor {monitor} with {transition} transition (awww)")
             else:
-                print(f"Wall-IT: Setting wallpaper on all monitors with {transition} transition (swww)")
-            
+                print(f"Wall-IT: Setting wallpaper on all monitors with {transition} transition (awww)")
+
             if matugen_success:
                 print(f"Wall-IT: Generated dynamic colors with matugen")
-            
+
             result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-            
+
             # Apply KDE-specific color integration if matugen succeeded
             if matugen_success:
                 self._apply_kde_colors()
-            
+
             return True
-            
+
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr if e.stderr else str(e)
-            print(f"Error setting wallpaper with swww: {error_msg}", file=sys.stderr)
+            print(f"Error setting wallpaper with awww: {error_msg}", file=sys.stderr)
             # Fallback to KDE native method
             print("Falling back to KDE native wallpaper setting", file=sys.stderr)
             return self._set_wallpaper_kde_native(wallpaper_path, monitor)
@@ -323,8 +324,8 @@ class KDEBackend:
     
     def supports_transitions(self) -> bool:
         """Check if the backend supports wallpaper transitions"""
-        # KDE supports transitions via swww if daemon is running (hybrid mode)
-        return self.swww_available
+        # KDE supports transitions via awww if daemon is running (hybrid mode)
+        return self.awww_available
     
     def get_supported_formats(self) -> List[str]:
         """Get list of supported wallpaper formats"""
@@ -427,6 +428,18 @@ class KDEBackend:
             pass
         return True  # Default to enabled if matugen is available
     
+    def _get_matugen_mode(self) -> str:
+        """Return 'light' or 'dark' based on the saved Wall-IT theme setting."""
+        try:
+            theme_file = Path.home() / ".cache" / "wall-it" / "theme"
+            if theme_file.exists():
+                theme = theme_file.read_text().strip()
+                if theme == 'light':
+                    return 'light'
+        except Exception:
+            pass
+        return 'dark'
+
     def _generate_matugen_colors(self, wallpaper_path: Path) -> bool:
         """Generate colors using matugen for KDE integration"""
         if not self._check_matugen_available() or not self._is_matugen_enabled():
@@ -434,9 +447,10 @@ class KDEBackend:
         
         try:
             scheme = self._get_matugen_scheme()
+            mode = self._get_matugen_mode()
             cmd = [
                 'matugen', 'image', str(wallpaper_path),
-                '--mode', 'dark',
+                '--mode', mode,
                 '--type', scheme,
                 '--json', 'hex'
             ]
@@ -561,18 +575,18 @@ def test_kde_backend():
     # Basic availability
     print(f"KDE Backend Available: {backend.is_available()}")
     print(f"Plasma Version: {backend.check_plasma_version()}")
-    
+
     # Feature support
     print(f"Supports Per-Monitor: {backend.supports_per_monitor_wallpapers()}")
     print(f"Supports Transitions: {backend.supports_transitions()}")
-    print(f"swww Daemon Available: {backend.swww_available}")
+    print(f"awww Daemon Available: {backend.awww_available}")
     print(f"matugen Available: {backend._check_matugen_available()}")
     print(f"matugen Enabled: {backend._is_matugen_enabled()}")
-    
+
     # Operating mode
-    if backend.swww_available:
+    if backend.awww_available:
         matugen_text = " + matugen colors" if backend._check_matugen_available() else ""
-        print(f"\n🎨 Operating Mode: Hybrid (KDE monitor detection + swww transitions{matugen_text})")
+        print(f"\n🎨 Operating Mode: Hybrid (KDE monitor detection + awww transitions{matugen_text})")
     else:
         matugen_text = " + matugen colors" if backend._check_matugen_available() else ""
         print(f"\n🖥️ Operating Mode: Native KDE wallpaper system{matugen_text}")

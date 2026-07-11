@@ -10,7 +10,7 @@ import re
 import subprocess
 import importlib.util
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Type
+from typing import Optional, List, Dict, Type
 from abc import ABC, abstractmethod
 
 # Import configuration
@@ -68,31 +68,31 @@ class WallpaperBackend(ABC):
 
 
 class NiriBackend(WallpaperBackend):
-    """Backend for Niri Wayland compositor using swww"""
-    
+    """Backend for Niri Wayland compositor using awww"""
+
     def __init__(self):
         self.name = "Niri"
         self.verify_tools()
-    
+
     def verify_tools(self):
         """Verify that required tools are available"""
-        required_tools = ['swww', 'niri']
+        required_tools = ['awww', 'niri']
         missing_tools = []
-        
+
         for tool in required_tools:
             try:
                 subprocess.run(['which', tool], check=True, capture_output=True)
             except subprocess.CalledProcessError:
                 missing_tools.append(tool)
-        
+
         if missing_tools:
             print(f"Warning: Missing required tools for Niri backend: {', '.join(missing_tools)}", file=sys.stderr)
-    
+
     def is_available(self) -> bool:
         """Check if Niri backend is available"""
         try:
-            # Check if swww is running
-            subprocess.run(['swww', 'query'], check=True, capture_output=True)
+            # Check if awww is running
+            subprocess.run(['awww', 'query'], check=True, capture_output=True)
             # Check if niri is available
             subprocess.run(['which', 'niri'], check=True, capture_output=True)
             return True
@@ -157,9 +157,9 @@ class NiriBackend(WallpaperBackend):
                 
         except subprocess.CalledProcessError as e:
             print(f"Error getting monitors from niri: {e}", file=sys.stderr)
-            # Fallback to swww query if niri command fails
+            # Fallback to awww query if niri command fails
             try:
-                result = subprocess.run(['swww', 'query'], capture_output=True, text=True, check=True)
+                result = subprocess.run(['awww', 'query'], capture_output=True, text=True, check=True)
                 for line in result.stdout.strip().split('\n'):
                     if ':' in line:
                         monitor_name = line.split(':')[1].strip().split(':')[0]
@@ -172,7 +172,7 @@ class NiriBackend(WallpaperBackend):
                             'refresh_rate': '60.0'
                         })
             except subprocess.CalledProcessError:
-                print("Warning: Both niri and swww monitor detection failed", file=sys.stderr)
+                print("Warning: Both niri and awww monitor detection failed", file=sys.stderr)
         
         return monitors
     
@@ -198,28 +198,28 @@ class NiriBackend(WallpaperBackend):
         return None
     
     def set_wallpaper(self, wallpaper_path: Path, monitor: Optional[str] = None, transition: str = 'fade', scaling: str = 'crop') -> bool:
-        """Set wallpaper using swww with configured parameters."""
+        """Set wallpaper using awww with configured parameters."""
         try:
             cmd = [
-                'swww', 'img', str(wallpaper_path),
+                'awww', 'img', str(wallpaper_path),
                 '--transition-type', transition,
                 '--transition-fps', str(config.TRANSITION_FPS),
                 '--transition-duration', str(config.TRANSITION_DURATION),
                 '--resize', scaling
             ]
-            
+
             if monitor:
                 cmd.extend(['--outputs', monitor])
-            
+
             subprocess.run(cmd, check=True, capture_output=True)
-            print(f"Wall-IT: Set wallpaper via Niri/swww with {scaling} scaling")
+            print(f"Wall-IT: Set wallpaper via Niri/awww with {scaling} scaling")
             return True
         except subprocess.CalledProcessError as e:
             stderr_msg = e.stderr.decode() if e.stderr else str(e)
             print(f"Error setting wallpaper: {stderr_msg}", file=sys.stderr)
             return False
         except FileNotFoundError:
-            print("Error: swww not found. Please install swww.", file=sys.stderr)
+            print("Error: awww not found. Please install awww.", file=sys.stderr)
             return False
     
     def get_current_wallpaper(self, monitor: Optional[str] = None) -> Optional[Path]:
@@ -312,7 +312,10 @@ class BackendManager:
             preferred_order = ['kde', 'niri', 'hyprland', 'labwc']
         elif 'hyprland' in current_desktop.lower():
             preferred_order = ['hyprland', 'niri', 'kde', 'labwc']
-        elif 'labwc' in current_desktop.lower() or ('wlroots' in current_desktop.lower() and 'labwc' in os.popen('pgrep labwc 2>/dev/null || echo ""').read()):
+        elif 'labwc' in current_desktop.lower() or (
+            'wlroots' in current_desktop.lower() and
+            subprocess.run(['pgrep', 'labwc'], capture_output=True).returncode == 0
+        ):
             preferred_order = ['labwc', 'niri', 'kde', 'hyprland']
         elif 'niri' in current_desktop.lower():
             preferred_order = ['niri', 'hyprland', 'kde', 'labwc']

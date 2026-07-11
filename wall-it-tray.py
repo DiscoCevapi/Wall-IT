@@ -28,9 +28,14 @@ except (ImportError, ValueError):
     print("⚠️ AppIndicator3 not available")
 
 from gi.repository import Gtk, GLib
-import dbus
-import dbus.service
-from dbus.mainloop.glib import DBusGMainLoop
+try:
+    import dbus
+    import dbus.service
+    from dbus.mainloop.glib import DBusGMainLoop
+    DBUS_AVAILABLE = True
+except ImportError:
+    DBUS_AVAILABLE = False
+    print("⚠️ python-dbus not available — D-Bus IPC disabled")
 
 # Check if we're on Wayland
 IS_WAYLAND = os.environ.get('WAYLAND_DISPLAY') is not None
@@ -103,6 +108,9 @@ class WallItTray:
             print("⚠️ AppIndicator3 not working properly, falling back to StatusIcon")
             self._create_status_icon_fallback()
             return
+
+        # AppIndicator3 is available and working — create the full indicator
+        self.create_indicator_with_fallback()
     
     def _ensure_tray_icon(self):
         """Generate and install a real PNG tray icon, returning its path.
@@ -538,9 +546,10 @@ class WallItTray:
 
 
 def main():
-    # Initialize D-Bus main loop
-    DBusGMainLoop(set_as_default=True)
-    
+    # Initialize D-Bus main loop if available
+    if DBUS_AVAILABLE:
+        DBusGMainLoop(set_as_default=True)
+
     tray = WallItTray()
     tray.run()
 

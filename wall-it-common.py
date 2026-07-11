@@ -68,17 +68,38 @@ def get_matugen_scheme() -> str:
     return scheme
 
 
+def get_matugen_mode() -> str:
+    """Return 'light' or 'dark' based on the saved Wall-IT theme setting.
+
+    'system' and unset both default to 'dark' since we cannot reliably
+    detect the compositor/desktop dark-mode preference from a subprocess.
+    """
+    try:
+        theme_file = Path.home() / ".cache" / "wall-it" / "theme"
+        if theme_file.exists():
+            theme = theme_file.read_text().strip()
+            if theme == 'light':
+                return 'light'
+    except Exception:
+        pass
+    return 'dark'
+
+
 def generate_colors_with_matugen(wallpaper_path: Path, scheme: str) -> bool:
     """Generate colors using matugen and save to cache with timeout."""
     try:
+        mode = get_matugen_mode()
         cmd = [
             "matugen", "image", str(wallpaper_path),
-            "--mode", "dark",
+            "--mode", mode,
             "--type", scheme,
-            "--json", "hex"
+            "--json", "hex",
+            "--prefer", "saturation",  # matugen 4.x: required for non-interactive use
         ]
-        # Set timeout to avoid blocking too long on large images
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=5.0)
+        # Set timeout to avoid blocking too long on large images.
+        # stdin=DEVNULL prevents matugen 4.x from blocking on terminal detection.
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True,
+                                timeout=10.0, stdin=subprocess.DEVNULL)
         
         # Save colors to cache
         if result.stdout:
@@ -176,8 +197,9 @@ def apply_fit_blur(image_path: Path) -> Path:
         output_dir = config.CACHE_DIR / "fit-blur"
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Generate cache filename
-        input_hash = str(hash(str(image_path)))[-8:]
+        # Generate stable cache filename using md5 (hash() is randomized per process)
+        import hashlib
+        input_hash = hashlib.md5(str(image_path).encode()).hexdigest()[:8]
         output_path = output_dir / f"{image_path.stem}_fitblur_{input_hash}.jpg"
         
         # Check cache
@@ -243,8 +265,8 @@ def update_wallpaper_symlink(wallpaper_path: Path) -> bool:
 def validate_transition(transition: str, backend_supports_transitions: bool) -> str:
     """
     Validate and normalize transition value.
-    
-    The 'none' transition causes issues with swww - it results in no wallpaper change.
+
+    The 'none' transition causes issues with awww - it results in no wallpaper change.
     This is a known issue, so we prevent it by defaulting to 'fade' instead.
     """
     if not backend_supports_transitions:

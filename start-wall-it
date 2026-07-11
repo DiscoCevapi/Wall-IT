@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Wall-IT Startup Script - Initializes swww and sets the current wallpaper with saved effects
+Wall-IT Startup Script - Initializes awww and sets the current wallpaper with saved effects
 """
 
 import sys
@@ -31,32 +31,32 @@ except ImportError:
     spec.loader.exec_module(config_module)
     config = config_module
 
-def start_swww_daemon(log_file: Path) -> bool:
-    """Start swww daemon if not running."""
+def start_awww_daemon(log_file: Path) -> bool:
+    """Start awww daemon if not running."""
     try:
-        # Check if swww-daemon is running
-        result = subprocess.run(['pgrep', '-x', config.SWWW_DAEMON_NAME], 
+        # Check if awww-daemon is running
+        result = subprocess.run(['pgrep', '-x', config.AWWW_DAEMON_NAME],
                                capture_output=True, text=True)
         if result.returncode != 0:
-            # Start swww daemon
+            # Start awww daemon
             with open(log_file, 'a') as f:
                 # Note: Process handle not tracked as daemon manages its own lifecycle
-                subprocess.Popen([config.SWWW_DAEMON_NAME], stdout=f, stderr=f)
-            time.sleep(config.SWWW_INIT_DELAY)
-        
-        # Initialize swww if needed
+                subprocess.Popen([config.AWWW_DAEMON_NAME], stdout=f, stderr=f)
+            time.sleep(config.AWWW_INIT_DELAY)
+
+        # Initialize awww if needed
         try:
-            subprocess.run(['swww', 'query'], check=True, capture_output=True)
+            subprocess.run(['awww', 'query'], check=True, capture_output=True)
         except subprocess.CalledProcessError:
-            subprocess.run(['swww', 'init'], check=True)
-            time.sleep(config.SWWW_INIT_DELAY)
-        
+            subprocess.run(['awww', 'init'], check=True)
+            time.sleep(config.AWWW_INIT_DELAY)
+
         return True
     except FileNotFoundError:
-        print("Error: swww not found. Please install swww.", file=sys.stderr)
+        print("Error: awww not found. Please install awww.", file=sys.stderr)
         return False
     except Exception as e:
-        print(f"Error starting swww: {e}", file=sys.stderr)
+        print(f"Error starting awww: {e}", file=sys.stderr)
         return False
 
 def get_current_effect() -> str:
@@ -160,9 +160,9 @@ def main() -> int:
     """Main startup function."""
     # Setup logging
     config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    
-    # Always start swww daemon first (required for wall-it to work)
-    if not start_swww_daemon(config.LOG_FILE):
+
+    # Always start awww daemon first (required for wall-it to work)
+    if not start_awww_daemon(config.LOG_FILE):
         return 1
     
     # Check if we have a cached wallpaper to restore
@@ -206,7 +206,7 @@ def main() -> int:
     # Set wallpaper with transition effect
     try:
         cmd = [
-            'swww', 'img', str(processed_path),
+            'awww', 'img', str(processed_path),
             '--transition-fps', str(config.STARTUP_TRANSITION_FPS),
             '--transition-type', transition_effect,
             '--transition-duration', str(config.STARTUP_TRANSITION_DURATION),
@@ -234,7 +234,7 @@ def main() -> int:
             return 1
 
     except FileNotFoundError:
-        print("Error: swww not found. Please install swww.", file=sys.stderr)
+        print("Error: awww not found. Please install awww.", file=sys.stderr)
         return 1
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
