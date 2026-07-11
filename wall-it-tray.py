@@ -11,6 +11,7 @@ import math
 import signal
 import subprocess
 import time
+import fcntl
 from pathlib import Path
 
 # Import for system tray (using GTK3 in separate process)
@@ -53,6 +54,27 @@ WAYLAND_TRAY_SUPPORTED = any([
 
 print(f"🖥️ Desktop Environment: {DESKTOP_ENV or 'Unknown'}")
 print(f"🔧 Wayland Compositor: {WAYLAND_COMPOSITOR or 'None'}")
+
+_singleton_lock_fd = None
+
+def acquire_singleton_lock() -> bool:
+    """Ensure only one wall-it-tray.py process is running."""
+    global _singleton_lock_fd
+    try:
+        lock_dir = Path.home() / ".cache" / "wall-it"
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        lock_file = lock_dir / "wall-it-tray.lock"
+        _singleton_lock_fd = open(lock_file, "w")
+        fcntl.flock(_singleton_lock_fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _singleton_lock_fd.write(f"{os.getpid()}\n")
+        _singleton_lock_fd.flush()
+        return True
+    except BlockingIOError:
+        print("ℹ️ Wall-IT tray is already running. Exiting duplicate instance.")
+        return False
+    except Exception as e:
+        print(f"⚠️ Failed to acquire tray singleton lock: {e}")
+        return False
 
 class WallItTray:
     def __init__(self):
@@ -546,6 +568,8 @@ class WallItTray:
 
 
 def main():
+    if not acquire_singleton_lock():
+        return 0
     # Initialize D-Bus main loop if available
     if DBUS_AVAILABLE:
         DBusGMainLoop(set_as_default=True)

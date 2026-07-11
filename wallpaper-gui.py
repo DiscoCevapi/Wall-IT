@@ -14,6 +14,7 @@ import shutil
 import json
 import tempfile
 import time
+import signal
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple
 import importlib.util
@@ -2488,6 +2489,62 @@ class SystemTrayManager:
         self.ipc_monitor_thread = None
         self.monitoring = False
 
+    def _cleanup_stale_tray_processes(self):
+        """Terminate stale wall-it-tray.py processes before spawning a new one."""
+        try:
+            result = subprocess.run(
+                ["pgrep", "-af", "wall-it-tray.py"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                return
+
+            current_pid = os.getpid()
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split(maxsplit=1)
+                if not parts:
+                    continue
+                try:
+                    pid = int(parts[0])
+                except ValueError:
+                    continue
+                if pid == current_pid:
+                    continue
+                # Avoid killing the process we already track, if any.
+                if self.tray_process and self.tray_process.poll() is None and pid == self.tray_process.pid:
+                    continue
+
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    continue
+                except PermissionError:
+                    print(f"⚠️ No permission to terminate stale tray process {pid}")
+                    continue
+
+                deadline = time.time() + 1.5
+                while time.time() < deadline:
+                    try:
+                        os.kill(pid, 0)
+                        time.sleep(0.05)
+                    except ProcessLookupError:
+                        break
+                else:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    except PermissionError:
+                        print(f"⚠️ No permission to force-kill stale tray process {pid}")
+                print(f"🧹 Removed stale tray process {pid}")
+        except Exception as e:
+            print(f"⚠️ Stale tray cleanup skipped: {e}")
+
     def create_tray_icon(self):
         """Create system tray icon in separate process"""
         global tray_process
@@ -2495,6 +2552,7 @@ class SystemTrayManager:
             return False
 
         try:
+            self._cleanup_stale_tray_processes()
             # Start the tray process
             tray_script_path = Path(__file__).parent / "wall-it-tray.py"
             self.tray_process = subprocess.Popen([sys.executable, str(tray_script_path)])
