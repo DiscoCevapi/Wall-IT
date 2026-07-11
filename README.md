@@ -80,6 +80,8 @@ cd /path/to/Wall-IT
 makepkg -si
 ```
 
+`wall-it-git` now declares `python-cairo` as a hard dependency so `wall-it-gui` works on first launch in clean installs.
+
 For publishing to AUR:
 
 ```bash
