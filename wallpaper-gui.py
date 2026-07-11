@@ -18,6 +18,14 @@ from pathlib import Path
 from typing import Optional, List, Dict, Tuple
 import importlib.util
 
+try:
+    import wall_it_common as common
+except ImportError:
+    common_path = Path(__file__).parent / "wall-it-common.py"
+    spec = importlib.util.spec_from_file_location("wall_it_common", common_path)
+    common = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(common)
+
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('GdkPixbuf', '2.0')
@@ -4610,6 +4618,9 @@ def handle_command_line_args(args):
 
 def main():
     """Main entry point"""
+    ok, _ = common.validate_runtime(caller="wall-it-gui")
+    if not ok:
+        return 1
     # Handle command line arguments first
     if handle_command_line_args(sys.argv):
         return 0

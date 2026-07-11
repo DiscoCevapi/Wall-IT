@@ -29,14 +29,12 @@ def get_monitor_state_manager():
 
 def main() -> int:
     """Main function to switch to previous wallpaper."""
-    # Initialize backend manager
-    try:
-        backend_manager = common.get_backend_manager()
-        if not backend_manager.is_available():
-            print("Error: No compatible wallpaper backend found!", file=sys.stderr)
-            return 1
-    except Exception as e:
-        print(f"Error initializing backend: {e}", file=sys.stderr)
+    ok, backend_manager = common.validate_runtime(
+        caller="wall-it-prev",
+        require_backend=True,
+        require_wallpapers=True,
+    )
+    if not ok or not backend_manager:
         return 1
     
     # Get keybind mode and determine target monitor

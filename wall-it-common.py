@@ -5,10 +5,11 @@ Shared functions and utilities for Wall-IT scripts
 """
 
 import sys
+import shutil
 import subprocess
 import importlib.util
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Tuple, Any
 
 # Import configuration
 try:
@@ -19,6 +20,113 @@ except ImportError:
     spec = importlib.util.spec_from_file_location("wall_it_config", config_path)
     config = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(config)
+DEFAULT_CACHE_VALUES = {
+    config.TRANSITION_FILE: config.DEFAULT_TRANSITION,
+    config.EFFECT_FILE: config.DEFAULT_EFFECT,
+    config.SCALING_FILE: config.DEFAULT_SCALING,
+    config.KEYBIND_MODE_FILE: config.DEFAULT_KEYBIND_MODE,
+    config.MATUGEN_ENABLED_FILE: str(config.DEFAULT_MATUGEN_ENABLED).lower(),
+    config.MATUGEN_SCHEME_FILE: config.DEFAULT_MATUGEN_SCHEME,
+}
+
+FIRST_RUN_MARKER = config.CACHE_DIR / ".first_run_complete"
+
+
+def initialize_first_run_state(caller: str = "wall-it") -> None:
+    """
+    Ensure first-run defaults and directories exist.
+
+    This is intentionally non-fatal: if bootstrap fails we keep running and
+    allow command-specific checks to report actionable errors.
+    """
+    try:
+        config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        config.TEMP_DIR.mkdir(parents=True, exist_ok=True)
+        config.WALLPAPER_DIR.mkdir(parents=True, exist_ok=True)
+
+        for file_path, default_value in DEFAULT_CACHE_VALUES.items():
+            if not file_path.exists():
+                write_cache_file(file_path, default_value)
+
+        if not FIRST_RUN_MARKER.exists():
+            FIRST_RUN_MARKER.write_text(
+                "Wall-IT first-run initialization complete.\n"
+                f"Initialized by: {caller}\n"
+            )
+            print(
+                f"Wall-IT: First-run setup complete (cache: {config.CACHE_DIR}, "
+                f"wallpapers: {config.WALLPAPER_DIR})"
+            )
+    except Exception as e:
+        print(f"Warning: Could not complete first-run setup: {e}", file=sys.stderr)
+
+
+def _is_command_available(command: str) -> bool:
+    """Return True if a command is available in PATH."""
+    return shutil.which(command) is not None
+
+
+def validate_runtime(
+    caller: str,
+    require_backend: bool = False,
+    require_wallpapers: bool = False,
+    require_awww: bool = False,
+) -> Tuple[bool, Optional[Any]]:
+    """
+    Run dependency checks and first-run validation.
+
+    Returns:
+      (ok, backend_manager)
+    """
+    initialize_first_run_state(caller)
+
+    if require_awww:
+        missing = [cmd for cmd in (config.AWWW_DAEMON_NAME, "awww") if not _is_command_available(cmd)]
+        if missing:
+            print(
+                "Error: Missing required wallpaper backend tools: "
+                f"{', '.join(missing)}.\n"
+                "Install them (e.g. `sudo pacman -S awww`) and retry.",
+                file=sys.stderr,
+            )
+            return False, None
+
+    if require_wallpapers:
+        wallpapers = get_wallpaper_list()
+        if not wallpapers:
+            print(
+                "Error: No wallpapers found.\n"
+                f"Add image files to: {config.WALLPAPER_DIR}",
+                file=sys.stderr,
+            )
+            return False, None
+
+    backend_manager = None
+    if require_backend:
+        try:
+            backend_manager = get_backend_manager()
+        except Exception as e:
+            print(f"Error initializing backend manager: {e}", file=sys.stderr)
+            return False, None
+
+        if not backend_manager.is_available():
+            print(
+                "Error: No compatible wallpaper backend detected.\n"
+                "Ensure your compositor backend tools are installed and running "
+                "(e.g. awww/swww for wlroots compositors).",
+                file=sys.stderr,
+            )
+            return False, None
+
+    if is_matugen_enabled() and not _is_command_available("matugen"):
+        print(
+            "Warning: matugen is enabled but not installed; wallpaper changes will still work, "
+            "but dynamic color generation is disabled.\n"
+            "Install with: `sudo pacman -S matugen` or disable matugen in Wall-IT settings.",
+            file=sys.stderr,
+        )
+
+    return True, backend_manager
 
 
 def read_cache_file(file_path: Path, default: str = "") -> str:

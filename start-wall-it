@@ -158,6 +158,13 @@ def get_transition_effect() -> str:
 
 def main() -> int:
     """Main startup function."""
+    ok, _ = common.validate_runtime(
+        caller="wall-it-start",
+        require_wallpapers=True,
+        require_awww=True,
+    )
+    if not ok:
+        return 1
     # Setup logging
     config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
