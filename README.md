@@ -44,7 +44,7 @@ sudo pacman -S swww  # For Niri/swww backend
 sudo pacman -S matugen  # For Material You color theming
 ```
 
-### Install Wall-IT
+### Install Wall-IT (local scripts)
 
 ```bash
 # Clone the repository
@@ -63,6 +63,32 @@ cp wallpaper-gui.py ~/.local/bin/
 chmod +x ~/.local/bin/wall-it-* ~/.local/bin/start-wall-it ~/.local/bin/wallpaper-gui.py
 ```
 
+### Install as a desktop application (system-wide)
+
+This repository now ships packaging assets for desktop integration:
+
+- Desktop file: `wall-it.desktop` (`Exec=wall-it-gui`, `Icon=wall-it`)
+- Icon asset: `assets/wall-it.svg`
+- Stable launchers: `wall-it`, `wall-it-gui`, `wall-it-start`, `wall-it-next`, `wall-it-prev`
+- AUR packaging files: `PKGBUILD`, `.SRCINFO`
+
+### AUR package workflow (`wall-it-git`)
+
+```bash
+# Build locally
+cd /path/to/Wall-IT
+makepkg -si
+```
+
+For publishing to AUR:
+
+```bash
+# Update srcinfo whenever PKGBUILD changes
+makepkg --printsrcinfo > .SRCINFO
+
+# Push PKGBUILD + .SRCINFO to your AUR repo (wall-it-git)
+```
+
 ## 🎮 Usage
 
 ### Command Line
@@ -75,10 +101,10 @@ wall-it-next
 wall-it-prev
 
 # Start Wall-IT at login (add to your startup scripts)
-start-wall-it
+wall-it-start
 
 # Launch GUI
-wallpaper-gui.py
+wall-it-gui
 ```
 
 ### Keybindings

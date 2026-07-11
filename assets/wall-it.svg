@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <radialGradient id="g" cx="32%" cy="28%" r="75%">
+      <stop offset="0%" stop-color="#f2f6ff"/>
+      <stop offset="55%" stop-color="#8f95b8"/>
+      <stop offset="100%" stop-color="#1e253f"/>
+    </radialGradient>
+  </defs>
+  <rect width="128" height="128" rx="24" fill="#111522"/>
+  <circle cx="64" cy="67" r="42" fill="url(#g)" stroke="#0a0e18" stroke-width="3"/>
+  <g fill="#d5dbf6" opacity="0.8">
+    <rect x="36" y="43" width="9" height="9" rx="1.5"/>
+    <rect x="48" y="43" width="9" height="9" rx="1.5"/>
+    <rect x="60" y="43" width="9" height="9" rx="1.5"/>
+    <rect x="72" y="43" width="9" height="9" rx="1.5"/>
+    <rect x="84" y="43" width="9" height="9" rx="1.5"/>
+    <rect x="42" y="55" width="9" height="9" rx="1.5"/>
+    <rect x="54" y="55" width="9" height="9" rx="1.5"/>
+    <rect x="66" y="55" width="9" height="9" rx="1.5"/>
+    <rect x="78" y="55" width="9" height="9" rx="1.5"/>
+    <rect x="36" y="67" width="9" height="9" rx="1.5"/>
+    <rect x="48" y="67" width="9" height="9" rx="1.5"/>
+    <rect x="60" y="67" width="9" height="9" rx="1.5"/>
+    <rect x="72" y="67" width="9" height="9" rx="1.5"/>
+    <rect x="84" y="67" width="9" height="9" rx="1.5"/>
+    <rect x="42" y="79" width="9" height="9" rx="1.5"/>
+    <rect x="54" y="79" width="9" height="9" rx="1.5"/>
+    <rect x="66" y="79" width="9" height="9" rx="1.5"/>
+    <rect x="78" y="79" width="9" height="9" rx="1.5"/>
+  </g>
+  <circle cx="52" cy="52" r="9" fill="#fff" opacity="0.45"/>
+</svg>
