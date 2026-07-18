@@ -253,6 +253,21 @@ class BackendManager:
         # Register Niri backend first
         self.backends['niri'] = NiriBackend
 
+        # Import X11/Openbox backend
+        try:
+            x11_backend_path = Path(__file__).parent / "wall-it-x11-backend.py"
+            if x11_backend_path.exists():
+                spec = importlib.util.spec_from_file_location("x11_backend", x11_backend_path)
+                x11_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(x11_module)
+                self.backends['x11'] = x11_module.X11Backend
+            else:
+                print(f"Info: X11 backend file not found at {x11_backend_path}", file=sys.stderr)
+        except ImportError as e:
+            print(f"Info: X11 backend import failed: {e}", file=sys.stderr)
+        except Exception as e:
+            print(f"Warning: Failed to load X11 backend: {type(e).__name__}: {e}", file=sys.stderr)
+
         # Import KDE backend
         try:
             kde_backend_path = Path(__file__).parent / "wall-it-kde-backend.py"
@@ -304,11 +319,15 @@ class BackendManager:
         import os
         current_desktop = os.environ.get('XDG_CURRENT_DESKTOP', '').lower()
         wayland_display = os.environ.get('WAYLAND_DISPLAY', '')
-        
+        x11_display = os.environ.get('DISPLAY', '')
+
         # Priority order based on detected environment
         preferred_order = []
-        
-        if 'kde' in current_desktop:
+
+        # X11-only session: no Wayland compositor at all
+        if x11_display and not wayland_display:
+            preferred_order = ['x11', 'kde']  # KDE can run on X11 too
+        elif 'kde' in current_desktop:
             preferred_order = ['kde', 'niri', 'hyprland', 'labwc']
         elif 'hyprland' in current_desktop.lower():
             preferred_order = ['hyprland', 'niri', 'kde', 'labwc']
@@ -319,9 +338,11 @@ class BackendManager:
             preferred_order = ['labwc', 'niri', 'kde', 'hyprland']
         elif 'niri' in current_desktop.lower():
             preferred_order = ['niri', 'hyprland', 'kde', 'labwc']
+        elif 'openbox' in current_desktop.lower() or 'openbox' in os.environ.get('DESKTOP_SESSION', '').lower():
+            preferred_order = ['x11']
         else:
             # Default order: try Niri first (since it's mentioned in the project name), then others
-            preferred_order = ['niri', 'hyprland', 'kde', 'labwc']
+            preferred_order = ['niri', 'hyprland', 'kde', 'labwc', 'x11']
         
         # Try backends in preferred order
         for name in preferred_order:

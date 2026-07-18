@@ -10,7 +10,7 @@ A professional, modular wallpaper manager for Linux with support for multiple de
 - 🎨 **Photo Effects** - Blur, sharpen, grayscale, dramatic, vintage, and sepia effects
 - 🌈 **Material You Integration** - Automatic color theme generation with matugen
 - ⚡ **Fast Transitions** - Smooth wallpaper transitions with configurable effects
-- 🖥️ **Multi-Backend Support** - Works with Niri, KDE, Hyprland, and LabWC
+- 🖥️ **Multi-Backend Support** - Works with Niri, KDE, Hyprland, LabWC, and X11/Openbox
 - ⌨️ **Keybind Support** - Switch wallpapers with keyboard shortcuts
 - 🔄 **Configurable** - Environment variables for custom paths and settings
 - 🎯 **Fit-Blur Mode** - Perfect for ultrawide monitors! Fits image and fills sides with blurred background
@@ -35,10 +35,13 @@ This refactored version includes significant performance and code quality improv
 
 ```bash
 # Core dependencies
-sudo pacman -S python python-pillow python-numpy gtk4 python-gobject
+ sudo pacman -S python python-pillow python-numpy gtk4 python-gobject
 
 # Backend dependencies (install what you need)
-sudo pacman -S swww  # For Niri/swww backend
+ sudo pacman -S swww  # For Niri/swww backend
+ sudo pacman -S feh   # For X11/Openbox backend (recommended)
+# sudo pacman -S xwallpaper  # Alternative: enables per-monitor X11 support
+# sudo pacman -S nitrogen    # Alternative: GUI-friendly X11 setter
 
 # Optional
 sudo pacman -S matugen  # For Material You color theming
@@ -127,6 +130,22 @@ bind = $mainMod, W, exec, wall-it-next
 bind = $mainMod SHIFT, W, exec, wall-it-prev
 ```
 
+#### Openbox
+Add inside the `<keyboard>` section of `~/.config/openbox/rc.xml`:
+```xml
+<!-- Wall-IT Keybinds -->
+<keybind key="W-A-n">
+  <action name="Execute"><command>wall-it-next</command></action>
+</keybind>
+<keybind key="W-A-p">
+  <action name="Execute"><command>wall-it-prev</command></action>
+</keybind>
+<keybind key="W-A-g">
+  <action name="Execute"><command>wall-it-gui</command></action>
+</keybind>
+```
+Then reload: `openbox --reconfigure`
+
 ## ⚙️ Configuration
 
 Wall-IT uses a centralized configuration module that can be customized via environment variables:
@@ -208,6 +227,7 @@ wallpaper-gui.py           # GTK4 GUI application
 - **KDE Plasma** - Full support via plasma-apply-wallpaperimage
 - **Hyprland** (via swww) - Full support with per-monitor and transitions
 - **LabWC** - Basic support
+- **X11/Openbox** - Full support via feh (all monitors) or xwallpaper (per-monitor); no transitions
 
 ## 🐛 Troubleshooting
 
