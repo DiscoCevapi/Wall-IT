@@ -743,9 +743,12 @@ void main() {
     vec3 stormGrey = vec3(0.11, 0.13, 0.17);
     col.rgb = mix(col.rgb, stormGrey, 0.55);
 
-    // Lightning flash — brief cool-white bloom across the whole frame
+    // Lightning flash — subtle cool-grey bloom; kept dim intentionally to
+    // avoid harsh brightness spikes that can cause discomfort or trigger
+    // photosensitivity. Reads as distant sheet lightning rather than a
+    // direct strike.
     float flash = lightning(iTime);
-    col.rgb = mix(col.rgb, vec3(0.95, 0.97, 1.0), flash * 0.72);
+    col.rgb = mix(col.rgb, vec3(0.78, 0.82, 0.90), flash * 0.35);
 
     fragColor = vec4(col.rgb, 1.0);
 }
