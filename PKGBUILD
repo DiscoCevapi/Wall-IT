@@ -1,5 +1,5 @@
 pkgname=wall-it-git
-pkgver=2.1.0.r16.gc96c473
+pkgver=2.1.0.r19.g2c15d37
 pkgrel=1
 pkgdesc="Professional modular wallpaper manager for Wayland and X11 desktops"
 arch=('any')
