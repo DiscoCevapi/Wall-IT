@@ -703,12 +703,12 @@ float hash1(float n) {
     return fract(sin(n) * 43758.5453);
 }
 
-// Returns 0-1 lightning intensity from 3 independent randomised flash events.
+// Returns 0-1 lightning intensity from 2 independent randomised flash events.
 float lightning(float iTime) {
     float flash = 0.0;
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 2; i++) {
         float fi = float(i);
-        float period = 8.0 + hash1(fi * 13.71) * 8.0;  // 8-16 s cycle per bolt
+        float period = 18.0 + hash1(fi * 13.71) * 12.0;  // 18-30 s cycle per bolt
         float offset = hash1(fi *  7.31) * period;
         float t = mod(iTime + offset, period);
         // Primary flash (~0.15 s)
