@@ -8,7 +8,7 @@ layer-shell surface that sits above the wallpaper but below application windows.
 Instead of the old Pillow/CPU particle renderer (which pushed a JPEG to the
 wallpaper roughly once per second and looked low-fidelity), this version runs
 procedural GLSL fragment shaders at the monitor's native refresh rate using
-moderngl inside a GTK4 GtkGLArea. The five effects are ports of the
+moderngl inside a GTK4 GtkGLArea. The six effects are ports of the
 noctalia-shell command-centre weather shaders:
 
     rain   - animated ripple/refraction distortion of the wallpaper
@@ -16,6 +16,7 @@ noctalia-shell command-centre weather shaders:
     cloud  - fbm turbulence haze (clouds, or fog via the "alternative" flag)
     sun    - god-rays + pulsing sun core/flare + warm wash over the wallpaper
     stars  - twinkling multi-density star field
+    storm  - heavy rain ripple + storm-cloud darkening + lightning flashes
 
 Process contract (unchanged so the GUI/tray need no edits):
   * Launched with no arguments; it resolves the current weather itself.
@@ -23,8 +24,8 @@ Process contract (unchanged so the GUI/tray need no edits):
   * Exits cleanly on SIGINT / SIGTERM.
 
 Testing helpers:
-  * --force <condition>   force an effect (e.g. rain, snow, cloud, fog,
-                          sun, clear-day, stars, sunset, dawn, night)
+  * --force <condition>   force an effect (e.g. rain, storm, snow, cloud,
+                          fog, sun, clear-day, stars, sunset, dawn, night)
   * env WALLIT_FORCE_WEATHER=<condition>   same as --force
 """
 
@@ -97,8 +98,8 @@ WTTR_CONDITION_MAP = {
     "Patchy snow possible": "snow", "Light snow": "snow", "Moderate snow": "snow",
     "Heavy snow": "snow", "Light snow shower": "snow", "Moderate snow shower": "snow",
     "Heavy snow shower": "snow", "Light sleet": "snow", "Moderate sleet": "snow",
-    "Thundery outbreaks possible": "rain", "Patchy light rain with thunder": "rain",
-    "Moderate or heavy rain with thunder": "rain", "Blowing snow": "snow",
+    "Thundery outbreaks possible": "storm", "Patchy light rain with thunder": "storm",
+    "Moderate or heavy rain with thunder": "storm", "Blowing snow": "snow",
     "Blizzard": "snow", "Hail": "snow",
 }
 
@@ -184,7 +185,9 @@ def fetch_weather_condition():
                 break
         if weather_cond is None:
             d = desc.lower()
-            if any(w in d for w in ["rain", "drizzle", "shower"]):
+            if any(w in d for w in ["thunder", "thunderstorm", "lightning"]):
+                weather_cond = "storm"
+            elif any(w in d for w in ["rain", "drizzle", "shower"]):
                 weather_cond = "rain"
             elif any(w in d for w in ["snow", "sleet", "blizzard"]):
                 weather_cond = "snow"
@@ -204,7 +207,7 @@ def fetch_weather_condition():
     phase = _time_phase(now_min, sunrise_min, sunset_min)
 
     # Precipitation and fog dominate at any time (you can't see the sun/stars).
-    if weather_cond in ("rain", "snow", "fog"):
+    if weather_cond in ("rain", "storm", "snow", "fog"):
         return weather_cond
     # At sunrise / sunset / night, show the warm-sun or stars effect for any sky
     # that isn't fully overcast (the sun/stars are usually visible through
@@ -212,6 +215,10 @@ def fetch_weather_condition():
     if phase in ("sunset", "dawn", "night"):
         if weather_cond == "cloudy":
             return "cloudy"
+        if weather_cond == "partly-cloudy":
+            # Preserve the mixed-sky condition so resolve_effects() can layer
+            # the sun/stars effect with a translucent cloud pass on top.
+            return f"partly-cloudy-{phase}"
         if phase == "night":
             return "clear-night"
         if phase == "sunset":
@@ -219,45 +226,83 @@ def fetch_weather_condition():
         return "dawn"
     # Daytime: use the reported weather (clear-day -> sun, partly-cloudy/cloudy
     # -> clouds).
+    if weather_cond == "partly-cloudy":
+        return "partly-cloudy-day"
     return weather_cond or "clear-day"
 
 
-def resolve_effect(force=None):
-    """Map a condition string onto (effect_name, params_dict)."""
+def resolve_effects(force=None):
+    """Map a condition string onto a list of (effect_name, params_dict) layers.
+
+    Mixed-sky conditions return two layers composited in order: the opaque-base
+    effect (sun or stars) first, then a translucent cloud pass on top, each
+    with a ``strength`` key (0.0-1.0) that scales shader intensity/opacity.
+    All other conditions return a single-element list (unchanged behaviour).
+    """
     cond = (force or os.environ.get("WALLIT_FORCE_WEATHER") or fetch_weather_condition())
     cond = cond.strip().lower().replace(" ", "-").replace("_", "-")
 
-    rain = {"rain", "drizzle", "shower", "showers", "thunder", "thunderstorm"}
-    snow = {"snow", "sleet", "blizzard", "hail"}
-    fog = {"fog", "mist", "haze"}
-    cloud = {"cloud", "clouds", "cloudy", "overcast", "partly-cloudy",
-             "partly-cloudy-day", "partly-cloudy-night", "wind", "windy"}
-    sun_day = {"sun", "sunny", "clear", "clear-day", "day", "noon",
-               "morning", "afternoon"}
-    sun_warm = {"sunset", "sunset-transition", "dusk", "dawn", "sunrise"}
-    night = {"night", "clear-night", "stars", "starry"}
+    _DAY_SUN  = (1.0, 0.95, 0.70)
+    _DAWN_SUN = (1.0, 0.80, 0.55)
+    _DUSK_SUN = (1.0, 0.62, 0.32)
 
+    # ── Multi-layer blended conditions ────────────────────────────────────────
+    if cond == "partly-cloudy-day":
+        return [
+            ("sun",   {"sun_color": _DAY_SUN,  "strength": 0.65}),
+            ("cloud", {"alternative": 0.0,       "strength": 0.45}),
+        ]
+    if cond == "partly-cloudy-night":
+        return [
+            ("stars", {"strength": 0.75}),
+            ("cloud", {"alternative": 0.0, "strength": 0.30}),
+        ]
+    if cond == "partly-cloudy-dawn":
+        return [
+            ("sun",   {"sun_color": _DAWN_SUN, "strength": 0.65}),
+            ("cloud", {"alternative": 0.0,      "strength": 0.35}),
+        ]
+    if cond == "partly-cloudy-sunset":
+        return [
+            ("sun",   {"sun_color": _DUSK_SUN, "strength": 0.65}),
+            ("cloud", {"alternative": 0.0,      "strength": 0.35}),
+        ]
+
+    # ── Single-effect conditions (unchanged behaviour) ────────────────────────
+    storm    = {"storm", "thunder", "thunderstorm", "lightning"}
+    rain     = {"rain", "drizzle", "shower", "showers"}
+    snow     = {"snow", "sleet", "blizzard", "hail"}
+    fog      = {"fog", "mist", "haze"}
+    cloud    = {"cloud", "clouds", "cloudy", "overcast", "partly-cloudy",
+                "partly-cloudy-day", "partly-cloudy-night", "wind", "windy"}
+    sun_day  = {"sun", "sunny", "clear", "clear-day", "day", "noon",
+                "morning", "afternoon"}
+    sun_warm = {"sunset", "sunset-transition", "dusk", "dawn", "sunrise"}
+    night    = {"night", "clear-night", "stars", "starry"}
+
+    if cond in storm:
+        return [("storm", {})]
     if cond in rain:
-        return "rain", {}
+        return [("rain", {})]
     if cond in snow:
-        return "snow", {}
+        return [("snow", {})]
     if cond in fog:
-        return "cloud", {"alternative": 1.0}
+        return [("cloud", {"alternative": 1.0})]
     if cond in cloud:
-        return "cloud", {"alternative": 0.0}
+        return [("cloud", {"alternative": 0.0})]
     if cond in night:
-        return "stars", {}
+        return [("stars", {})]
     if cond in sun_warm:
-        warm = (1.0, 0.62, 0.32) if cond in {"sunset", "sunset-transition", "dusk"} else (1.0, 0.8, 0.55)
-        return "sun", {"sun_color": warm}
+        warm = _DUSK_SUN if cond in {"sunset", "sunset-transition", "dusk"} else _DAWN_SUN
+        return [("sun", {"sun_color": warm})]
     if cond in sun_day:
-        return "sun", {"sun_color": (1.0, 0.95, 0.7)}
-    # Direct effect names also accepted (rain/snow/cloud/fog/sun/stars)
-    if cond in {"rain", "snow", "cloud", "sun", "stars"}:
-        return cond if cond != "cloud" else "cloud", {}
+        return [("sun", {"sun_color": _DAY_SUN})]
+    # Direct effect names also accepted (rain/storm/snow/cloud/fog/sun/stars)
+    if cond in {"storm", "rain", "snow", "cloud", "sun", "stars"}:
+        return [("cloud", {}) if cond == "cloud" else (cond, {})]
     if cond == "fog":
-        return "cloud", {"alternative": 1.0}
-    return "sun", {"sun_color": (1.0, 0.95, 0.7)}
+        return [("cloud", {"alternative": 1.0})]
+    return [("sun", {"sun_color": _DAY_SUN})]
 
 
 # ── Shaders ──────────────────────────────────────────────────────────────────
@@ -280,6 +325,7 @@ out vec4 fragColor;
 uniform float u_time;
 uniform vec2 u_resolution;
 uniform sampler2D u_wallpaper;
+uniform float u_strength;
 
 vec3 hash3(vec2 p) {
     vec3 q = vec3(dot(p, vec2(127.1, 311.7)),
@@ -318,7 +364,7 @@ void main() {
     float cx = noise(freq * (uvAspect + eAspect), iTime);
     float cy = noise(freq * (uvAspect + eAspect.yx), iTime);
     vec2 n = vec2(cx - f, cy - f);
-    vec2 distortion = vec2(n.x / aspect, n.y);
+    vec2 distortion = vec2(n.x / aspect, n.y) * u_strength;
 
     vec4 col = texture(u_wallpaper, uv + distortion);
     fragColor = vec4(col.rgb, 1.0);
@@ -331,6 +377,7 @@ in vec2 v_uv;
 out vec4 fragColor;
 uniform float u_time;
 uniform vec2 u_resolution;
+uniform float u_strength;
 
 void main() {
     float aspect = u_resolution.x / u_resolution.y;
@@ -362,7 +409,7 @@ void main() {
         }
     }
 
-    float snowAlpha = clamp(snow * 2.0, 0.0, 1.0);
+    float snowAlpha = clamp(snow * 2.0, 0.0, 1.0) * u_strength;
     vec3 snowColor = vec3(1.0);
     fragColor = vec4(snowColor * snowAlpha, snowAlpha);
 }
@@ -375,6 +422,7 @@ out vec4 fragColor;
 uniform float u_time;
 uniform vec2 u_resolution;
 uniform float u_alternative;
+uniform float u_strength;
 
 float hash(vec2 p) {
     p = fract(p * vec2(234.34, 435.345));
@@ -436,7 +484,7 @@ void main() {
     fogDensity *= pulse;
 
     vec3 hazeColor = vec3(0.88, 0.90, 0.93);
-    float hazeOpacity = fogDensity * baseOpacity;
+    float hazeOpacity = fogDensity * baseOpacity * u_strength;
     fragColor = vec4(hazeColor * hazeOpacity, hazeOpacity);
 }
 """
@@ -449,6 +497,7 @@ uniform float u_time;
 uniform vec2 u_resolution;
 uniform sampler2D u_wallpaper;
 uniform vec3 u_sunColor;
+uniform float u_strength;
 
 float hash(vec2 p) {
     p = fract(p * vec2(234.34, 435.345));
@@ -518,19 +567,19 @@ void main() {
     vec3 shimmerColor = vec3(1.0, 0.98, 0.85);
 
     vec3 resultRGB = col.rgb;
-    vec3 raysContribution = sunColor * rays;
-    float raysAlpha = rays * 0.4;
+    vec3 raysContribution = sunColor * rays * u_strength;
+    float raysAlpha = rays * 0.4 * u_strength;
     resultRGB = raysContribution + resultRGB * (1.0 - raysAlpha);
 
-    vec3 shimmerContribution = shimmerColor * shimmerEffect;
-    float shimmerAlpha = shimmerEffect * 0.1;
+    vec3 shimmerContribution = shimmerColor * shimmerEffect * u_strength;
+    float shimmerAlpha = shimmerEffect * 0.1 * u_strength;
     resultRGB = shimmerContribution + resultRGB * (1.0 - shimmerAlpha);
 
-    vec3 flareContribution = sunColor * flare;
-    float flareAlpha = clamp(flare, 0.0, 1.0) * 0.6;
+    vec3 flareContribution = sunColor * flare * u_strength;
+    float flareAlpha = clamp(flare, 0.0, 1.0) * 0.6 * u_strength;
     resultRGB = flareContribution + resultRGB * (1.0 - flareAlpha);
 
-    resultRGB = mix(resultRGB, resultRGB * vec3(1.08, 1.04, 0.98), 0.15);
+    resultRGB = mix(resultRGB, resultRGB * vec3(1.08, 1.04, 0.98), 0.15 * u_strength);
     fragColor = vec4(resultRGB, 1.0);
 }
 """
@@ -541,6 +590,7 @@ in vec2 v_uv;
 out vec4 fragColor;
 uniform float u_time;
 uniform vec2 u_resolution;
+uniform float u_strength;
 
 float hash(vec2 p) {
     p = fract(p * vec2(234.34, 435.345));
@@ -610,20 +660,107 @@ void main() {
     vec3 starColor3 = vec3(1.0, 0.98, 0.95);
 
     vec3 starsRGB = starColor1 * stars1 * 0.6 + starColor2 * stars2 * 0.8 + starColor3 * stars3 * 1.0;
-    float starsAlpha = clamp(stars1 * 0.6 + stars2 * 0.8 + stars3, 0.0, 1.0);
-    fragColor = vec4(min(starsRGB, vec3(1.0)), starsAlpha);
+    float starsAlpha = clamp(stars1 * 0.6 + stars2 * 0.8 + stars3, 0.0, 1.0) * u_strength;
+    fragColor = vec4(min(starsRGB * u_strength, vec3(1.0)), starsAlpha);
+}
+"""
+
+FRAG_STORM = """
+#version 330 core
+in vec2 v_uv;
+out vec4 fragColor;
+uniform float u_time;
+uniform vec2 u_resolution;
+uniform sampler2D u_wallpaper;
+uniform float u_strength;
+
+vec3 hash3(vec2 p) {
+    vec3 q = vec3(dot(p, vec2(127.1, 311.7)),
+                  dot(p, vec2(269.5, 183.3)),
+                  dot(p, vec2(419.2, 371.9)));
+    return fract(sin(q) * 43758.5453);
+}
+
+float rippleNoise(vec2 x, float iTime) {
+    vec2 p = floor(x);
+    vec2 f = fract(x);
+    float va = 0.0;
+    for (int j = -2; j <= 2; j++) {
+        for (int i = -2; i <= 2; i++) {
+            vec2 g = vec2(float(i), float(j));
+            vec3 o = hash3(p + g);
+            vec2 r = g - f + o.xy;
+            float d = sqrt(dot(r, r));
+            float ripple = max(mix(smoothstep(0.99, 0.999,
+                max(cos(d - iTime * 2.0 + (o.x + o.y) * 5.0), 0.0)), 0.0, d), 0.0);
+            va += ripple;
+        }
+    }
+    return va;
+}
+
+float hash1(float n) {
+    return fract(sin(n) * 43758.5453);
+}
+
+// Returns 0-1 lightning intensity from 3 independent randomised flash events.
+float lightning(float iTime) {
+    float flash = 0.0;
+    for (int i = 0; i < 3; i++) {
+        float fi = float(i);
+        float period = 8.0 + hash1(fi * 13.71) * 8.0;  // 8-16 s cycle per bolt
+        float offset = hash1(fi *  7.31) * period;
+        float t = mod(iTime + offset, period);
+        // Primary flash (~0.15 s)
+        flash += smoothstep(0.0, 0.05, t) * (1.0 - smoothstep(0.05, 0.20, t));
+        // Secondary (double) flash ~0.30 s later at half intensity
+        float t2 = t - 0.30;
+        if (t2 > 0.0)
+            flash += smoothstep(0.0, 0.04, t2) * (1.0 - smoothstep(0.04, 0.14, t2)) * 0.55;
+    }
+    return clamp(flash, 0.0, 1.0);
+}
+
+void main() {
+    vec2 uv = v_uv;
+    float iTime = u_time * 0.9;  // slightly faster than rain
+    float aspect = u_resolution.x / u_resolution.y;
+    vec2 uvAspect = vec2(uv.x * aspect, uv.y);
+    float freq = 8.0;  // denser ripple grid than plain rain (6.0)
+
+    float f = rippleNoise(freq * uvAspect, iTime);
+    vec2 e = vec2(0.5) / u_resolution;
+    vec2 eAspect = vec2(e.x * aspect, e.y);
+    float cx = rippleNoise(freq * (uvAspect + eAspect),    iTime);
+    float cy = rippleNoise(freq * (uvAspect + eAspect.yx), iTime);
+    vec2 n = vec2(cx - f, cy - f);
+    // 1.6x heavier distortion than plain rain, modulated by u_strength
+    vec2 distortion = vec2(n.x / aspect, n.y) * 1.6 * u_strength;
+
+    vec4 col = texture(u_wallpaper, uv + distortion);
+
+    // Heavy storm-cloud darkening — deep blue-grey overlay
+    vec3 stormGrey = vec3(0.11, 0.13, 0.17);
+    col.rgb = mix(col.rgb, stormGrey, 0.55);
+
+    // Lightning flash — brief cool-white bloom across the whole frame
+    float flash = lightning(iTime);
+    col.rgb = mix(col.rgb, vec3(0.95, 0.97, 1.0), flash * 0.72);
+
+    fragColor = vec4(col.rgb, 1.0);
 }
 """
 
 FRAGMENTS = {
     "rain": FRAG_RAIN,
+    "storm": FRAG_STORM,
     "snow": FRAG_SNOW,
     "cloud": FRAG_CLOUD,
     "sun": FRAG_SUN,
     "stars": FRAG_STARS,
 }
 # Effects that read the wallpaper as a texture and render opaque.
-NEEDS_WALLPAPER = {"rain", "sun"}
+NEEDS_WALLPAPER = {"rain", "storm", "sun"}
 
 
 def load_wallpaper_rgba():
@@ -755,11 +892,6 @@ class GLView:
     def on_render(self, area, gl_context):
         if self.ctx is None:
             return True
-        effect = self.app.effect
-        prog = self.programs.get(effect)
-        vao = self.vaos.get(effect)
-        if prog is None or vao is None:
-            return True
 
         if self.tex_gen != self.app.wallpaper_gen:
             self._upload_texture()
@@ -777,15 +909,21 @@ class GLView:
         # Premultiplied-alpha "over" blending (shaders output premultiplied rgb).
         self.ctx.blend_func = (moderngl.ONE, moderngl.ONE_MINUS_SRC_ALPHA)
 
-        self._set(prog, "u_time", self.app.elapsed())
-        self._set(prog, "u_resolution", (float(w), float(h)))
-        self._set(prog, "u_alternative", float(self.app.params.get("alternative", 0.0)))
-        self._set(prog, "u_sunColor", tuple(self.app.params.get("sun_color", (1.0, 0.95, 0.7))))
-        if effect in NEEDS_WALLPAPER and self.texture is not None:
-            self.texture.use(0)
-            self._set(prog, "u_wallpaper", 0)
-
-        vao.render(mode=moderngl.TRIANGLES, vertices=3)
+        t = self.app.elapsed()
+        for effect, params in self.app.effects:
+            prog = self.programs.get(effect)
+            vao = self.vaos.get(effect)
+            if prog is None or vao is None:
+                continue
+            self._set(prog, "u_time", t)
+            self._set(prog, "u_resolution", (float(w), float(h)))
+            self._set(prog, "u_alternative", float(params.get("alternative", 0.0)))
+            self._set(prog, "u_sunColor", tuple(params.get("sun_color", (1.0, 0.95, 0.7))))
+            self._set(prog, "u_strength", float(params.get("strength", 1.0)))
+            if effect in NEEDS_WALLPAPER and self.texture is not None:
+                self.texture.use(0)
+                self._set(prog, "u_wallpaper", 0)
+            vao.render(mode=moderngl.TRIANGLES, vertices=3)
         return True
 
     @staticmethod
@@ -803,7 +941,7 @@ class WeatherOverlay:
 
     def __init__(self, force=None):
         self.force = force
-        self.effect, self.params = resolve_effect(force)
+        self.effects = resolve_effects(force)
         self.wallpaper = load_wallpaper_rgba()
         self.wallpaper_gen = 0
         self._wp_sig = wallpaper_signature()
@@ -820,7 +958,7 @@ class WeatherOverlay:
 
     # ── startup ──────────────────────────────────────────────────────────────
     def on_activate(self, app):
-        print(f"\U0001f3ac Weather overlay v3 (GPU): effect={self.effect} params={self.params}")
+        print(f"\U0001f3ac Weather overlay v3 (GPU): effects={self.effects}")
         display = Gdk.Display.get_default()
         if display is None:
             print("\u274c No display available")
@@ -926,10 +1064,10 @@ class WeatherOverlay:
     def _refresh_weather(self):
         if self.force or os.environ.get("WALLIT_FORCE_WEATHER"):
             return GLib.SOURCE_CONTINUE
-        effect, params = resolve_effect()
-        if effect != self.effect or params != self.params:
-            print(f"\U0001f3ac Weather changed: {self.effect} -> {effect}")
-            self.effect, self.params = effect, params
+        effects = resolve_effects()
+        if effects != self.effects:
+            print(f"\U0001f3ac Weather changed: {self.effects} -> {effects}")
+            self.effects = effects
         return GLib.SOURCE_CONTINUE
 
     def _on_signal(self):
@@ -960,7 +1098,7 @@ class WeatherOverlay:
 
 def main():
     parser = argparse.ArgumentParser(description="Wall-IT GPU weather overlay")
-    parser.add_argument("--force", help="Force a condition/effect (rain, snow, cloud, fog, sun, clear-day, sunset, dawn, stars, night)")
+    parser.add_argument("--force", help="Force a condition/effect (rain, storm, snow, cloud, fog, sun, clear-day, sunset, dawn, stars, night, partly-cloudy-day, partly-cloudy-night, partly-cloudy-dawn, partly-cloudy-sunset)")
     args, _ = parser.parse_known_args()
 
     # Clear any stale stop file from a previous run.
